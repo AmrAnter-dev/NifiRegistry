@@ -19,6 +19,8 @@ class CartItem:
     local_available: int
     unit_price: int  # Minor units
     name: str
+    category: str
+    online_orderable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +97,6 @@ class CartRepository(Protocol):
 # ============================================================
 
 class RedisCartRepository:
-    """Production-grade Redis implementation of CartRepository using Lua Scripts."""
 
     _BRANCH_FIELD = "__branch_id__"
     _ITEM_PREFIX = "item:"
