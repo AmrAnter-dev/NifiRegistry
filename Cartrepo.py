@@ -3,93 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
+from infrastructure.redis_manager import RedisManager
 
-import redis.asyncio as aioredis
-
-
-# ============================================================
-# Domain Models
-# ============================================================
-
-@dataclass(frozen=True, slots=True)
-class CartItem:
-    item_code: str
-    sales_unit: str
-    quantity: int
-    local_available: int
-    unit_price: int  # Minor units
-    name: str
-    category: str
-    online_orderable: bool
-
-
-@dataclass(frozen=True, slots=True)
-class Cart:
-    customer_id: int
-    session_id: str
-    branch_id: int
-    items: list[CartItem]
-
-
-# ============================================================
-# Exceptions
-# ============================================================
-
-class CartDataCorruptionError(RuntimeError):
-    """Raised when persisted cart data cannot be safely deserialized."""
-    pass
-
-
-# ============================================================
-# Repository Contract
-# ============================================================
-
-class CartRepository(Protocol):
-
-    async def get(
-        self,
-        customer_id: int,
-        session_id: str,
-    ) -> Cart | None:
-        ...
-
-    async def create(
-        self,
-        cart: Cart,
-    ) -> bool:
-        ...
-
-    async def add_if_absent(
-        self,
-        customer_id: int,
-        session_id: str,
-        item: CartItem,
-    ) -> bool:
-        ...
-
-    async def increment_item(
-        self,
-        customer_id: int,
-        session_id: str,
-        item_code: str,
-        quantity: int,
-    ) -> int:
-        ...
-
-    async def remove_item(
-        self,
-        customer_id: int,
-        session_id: str,
-        item_code: str,
-    ) -> bool:
-        ...
-
-    async def clear(
-        self,
-        customer_id: int,
-        session_id: str,
-    ) -> None:
-        ...
 
 
 # ============================================================
@@ -183,7 +98,7 @@ class RedisCartRepository:
 
     def __init__(
         self,
-        redis_client: aioredis.Redis,
+        redis_client: RedisManager,
         ttl_seconds: int = 60 * 60 * 24 * 30,
     ) -> None:
         if ttl_seconds <= 0:
