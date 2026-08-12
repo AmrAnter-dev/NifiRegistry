@@ -1,6 +1,6 @@
 
 --الفروع
-INSERT INTO BRANCHES(barnch_name,address,governorate,phone,location)
+INSERT INTO BRANCHES(barnch_name,branch_name_ar,address,governorate,phone,location,workload,rating)
 VALUES  ('فرع جيهان','المنصورة، تقاطع جيهان','الدقهلية', '01210019121',ST_SetSRID(ST_MakePOINT(31.044997,31.365541),4326)),
 		('فرع حقوق','المنصورة، شارع الجمهورية أمام كلية الحقوق','الدقهلية','01210019121',ST_SetSRID(ST_MakePOINT(31.045917,31.355820)و4326)),
 		('فرع الزعفران','المنصورة، حي الجامعة، برج الصفوة','الدقهلية','01210019121',ST_SetSRID(ST_MakePOINT(31.031287,31.355891),4326)),
