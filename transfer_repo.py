@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class TransferStatus(str, Enum):
@@ -23,7 +23,7 @@ class TransferEntity:
 class TransferRepository:
 
     def __init__(self, pool_manager: Any):
-        """نمرر هنا الـ pool_manager بدلاً من db connection ثابت"""
+        """نمرر هنا الـ pool_manager لجلب الاتصالات ديناميكيًا بناءً على الفرع"""
         self.pool_manager = pool_manager
 
     async def create_transfer(
@@ -34,15 +34,12 @@ class TransferRepository:
         destination_branch_id: str,
         source_type: str,
     ) -> TransferEntity:
-        """إنشاء سجل تحويل في قاعدة البيانات الخاصّة بالفرع الهدف (destination_branch)"""
+        """إنشاء سجل تحويل في قاعدة بيانات الفرع المصدر (source_id)"""
 
-        # 1. جلب الـ Connection Pool أو الـ Connection الخاص بفرع الوصول
-        # الاعتماد على destination_branch_id للوصول لقاعدة البيانات المطلوبة
-        async with self.pool_manager.get_connection(
-            destination_branch_id
-        ) as conn:
+        # 1. جلب الاتصال الخص بـ source_id من الـ pool_manager
+        async with self.pool_manager.get_connection(source_id) as conn:
 
-            # 2. تنفيذ الاستعلام على قاعدة البيانات الخاصة بالفرع الهدف
+            # 2. تنفيذ الاستعلام على قاعدة بيانات الفرع المصدر
             query = """
                 INSERT INTO transfers (
                     item_code, 
@@ -79,12 +76,10 @@ class TransferRepository:
     async def update_status(
         self,
         transfer_id: str,
-        destination_branch_id: str,
+        source_id: str,
         status: TransferStatus,
     ) -> None:
-        """تحديث حالة النقل في قاعدة بيانات فرع الوصول"""
-        async with self.pool_manager.get_connection(
-            destination_branch_id
-        ) as conn:
+        """تحديث حالة النقل في قاعدة بيانات الفرع المصدر"""
+        async with self.pool_manager.get_connection(source_id) as conn:
             query = "UPDATE transfers SET status = $1 WHERE id = $2"
             await conn.execute(query, status.value, transfer_id)
