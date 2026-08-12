@@ -11,12 +11,14 @@ class CheckoutService:
         recommendation_engine,
         order_service,
         checkout_repository,
+        lock_manager: RedisLockManager,
     ):
         self.shopping_cart_service = shopping_cart_service
         self.transfer_service = transfer_service
         self.recommendation_engine = recommendation_engine
         self.order_service = order_service
         self.checkout_repository = checkout_repository
+        self.lock_manager = lock_manager
 
     async def checkout(
         self,
@@ -26,55 +28,127 @@ class CheckoutService:
         idempotency_key: str,
     ) -> Dict[str, Any]:
 
-        # 1. Idempotency Check
-        existing = await self.checkout_repository.get_by_idempotency_key(
-            idempotency_key
-        )
-        if existing:
-            return existing.response_payload  # إرجاع الاستجابة المحفوظة بدلاً من الكائن المباشر
+        lock_key = f"checkout:{idempotency_key}"
+        try:
+            async with self.lock_manager.acquire_lock(
+                lock_key, timeout_seconds=15, wait_timeout=3.0
+            ):
 
-        # 2. Get Cart
-        cart = await self.shopping_cart_service.get_cart(
-            customer_id=customer_id,
-            session_id=session_id,
-        )
-
-        if not cart or not cart.items:
-            raise ValueError("Cart is empty")
-
-        # 3. Fulfill ALL cart items in parallel (with exception handling)
-        results = await asyncio.gather(
-            *[self.transfer_service.fulfill_item(item) for item in cart.items],
-            return_exceptions=True,
-        )
-
-        plans = []
-        for res in results:
-            if isinstance(res, Exception):
-                # التعامل مع الأخطاء غير المتوقعة في الفحص
-                raise res
-            plans.append(res)
-
-        # 4. Items that could not be fully fulfilled
-        failed_plans = [plan for plan in plans if not plan.fulfilled]
-
-        # 5. Recommendation Engine Handling
-        if failed_plans:
-            recommendations = (
-                await self.recommendation_engine.recommend_for_items(
-                    [plan.item for plan in failed_plans]
-                )
+            # 1. Idempotency Check
+            existing = await self.checkout_repository.get_by_idempotency_key(
+                idempotency_key
             )
-
+            if existing:
+                return existing.response_payload  # إرجاع الاستجابة المحفوظة بدلاً من الكائن المباشر
+    
+            # 2. Get Cart
+            cart = await self.shopping_cart_service.get_cart(
+                customer_id=customer_id,
+                session_id=session_id,
+            )
+    
+            if not cart or not cart.items:
+                raise ValueError("Cart is empty")
+    
+            # 3. Fulfill ALL cart items in parallel (with exception handling)
+            results = await asyncio.gather(
+                *[self.transfer_service.fulfill_item(item) for item in cart.items],
+                return_exceptions=True,
+            )
+    
+            plans = []
+            for res in results:
+                if isinstance(res, Exception):
+                    # التعامل مع الأخطاء غير المتوقعة في الفحص
+                    raise res
+                plans.append(res)
+    
+            # 4. Items that could not be fully fulfilled
+            failed_plans = [plan for plan in plans if not plan.fulfilled]
+    
+            # 5. Recommendation Engine Handling
+            if failed_plans:
+                recommendations = (
+                    await self.recommendation_engine.recommend_for_items(
+                        [plan.item for plan in failed_plans]
+                    )
+                )
+    
+                response_data = {
+                    "checkout_id": checkout_id,
+                    "status": CheckoutStatus.ACTION_REQUIRED,
+                    "failed_items": [
+                        self._item_response(plan) for plan in failed_plans
+                    ],
+                    "recommendations": recommendations,
+                }
+    
+                await self.checkout_repository.save(
+                    checkout_id=checkout_id,
+                    idempotency_key=idempotency_key,
+                    status=CheckoutStatus.ACTION_REQUIRED,
+                    fulfillment_plans=plans,
+                    response_payload=response_data,
+                )
+    
+                return response_data
+    
+            # 6. Check for Transfers
+            transfer_plans = [plan for plan in plans if plan.transfer_allocations]
+    
+            # 7. Everything local
+            if not transfer_plans:
+                order = await self.order_service.create_order(
+                    customer_id=customer_id,
+                    checkout_id=checkout_id,
+                    fulfillment_plans=plans,
+                )
+    
+                await self.checkout_repository.save(
+                    checkout_id=checkout_id,
+                    idempotency_key=idempotency_key,
+                    status=CheckoutStatus.COMPLETED,
+                    fulfillment_plans=plans,
+                    response_payload=order,
+                )
+    
+                # تفريغ السلة بعد نجاح الطلب
+                await self.shopping_cart_service.clear_cart(
+                    customer_id=customer_id, session_id=session_id
+                )
+    
+                return order
+    
+            # 8. Transfer exists
             response_data = {
                 "checkout_id": checkout_id,
                 "status": CheckoutStatus.ACTION_REQUIRED,
-                "failed_items": [
-                    self._item_response(plan) for plan in failed_plans
+                "reason": "TRANSFER_REQUIRED",
+                "transfer_items": [
+                    self._transfer_item_response(plan) for plan in transfer_plans
                 ],
-                "recommendations": recommendations,
+                "options": [
+                    {
+                        "id": ShipmentOption.SEPARATE_SHIPMENT,
+                        "description": (
+                            "Send available items now and transferred items"
+                            " separately."
+                        ),
+                        "additional_transfer_fee": 0,
+                        "additional_delivery_fee": 0,
+                    },
+                    {
+                        "id": ShipmentOption.WAIT_FOR_ALL,
+                        "description": (
+                            "Wait until transferred items arrive and send"
+                            " everything together."
+                        ),
+                        "additional_transfer_fee": 0,
+                        "additional_delivery_fee": 0,
+                    },
+                ],
             }
-
+    
             await self.checkout_repository.save(
                 checkout_id=checkout_id,
                 idempotency_key=idempotency_key,
@@ -82,74 +156,13 @@ class CheckoutService:
                 fulfillment_plans=plans,
                 response_payload=response_data,
             )
-
+    
             return response_data
-
-        # 6. Check for Transfers
-        transfer_plans = [plan for plan in plans if plan.transfer_allocations]
-
-        # 7. Everything local
-        if not transfer_plans:
-            order = await self.order_service.create_order(
-                customer_id=customer_id,
-                checkout_id=checkout_id,
-                fulfillment_plans=plans,
+        except LockAcquisitionError:
+            # في حال وصول طلب مكرر في نفس اللحظة ولم يستطع أخذ القفل
+            raise ValueError(
+                "Another transaction is currently processing for this request. Please try again."
             )
-
-            await self.checkout_repository.save(
-                checkout_id=checkout_id,
-                idempotency_key=idempotency_key,
-                status=CheckoutStatus.COMPLETED,
-                fulfillment_plans=plans,
-                response_payload=order,
-            )
-
-            # تفريغ السلة بعد نجاح الطلب
-            await self.shopping_cart_service.clear_cart(
-                customer_id=customer_id, session_id=session_id
-            )
-
-            return order
-
-        # 8. Transfer exists
-        response_data = {
-            "checkout_id": checkout_id,
-            "status": CheckoutStatus.ACTION_REQUIRED,
-            "reason": "TRANSFER_REQUIRED",
-            "transfer_items": [
-                self._transfer_item_response(plan) for plan in transfer_plans
-            ],
-            "options": [
-                {
-                    "id": ShipmentOption.SEPARATE_SHIPMENT,
-                    "description": (
-                        "Send available items now and transferred items"
-                        " separately."
-                    ),
-                    "additional_transfer_fee": 0,
-                    "additional_delivery_fee": 0,
-                },
-                {
-                    "id": ShipmentOption.WAIT_FOR_ALL,
-                    "description": (
-                        "Wait until transferred items arrive and send"
-                        " everything together."
-                    ),
-                    "additional_transfer_fee": 0,
-                    "additional_delivery_fee": 0,
-                },
-            ],
-        }
-
-        await self.checkout_repository.save(
-            checkout_id=checkout_id,
-            idempotency_key=idempotency_key,
-            status=CheckoutStatus.ACTION_REQUIRED,
-            fulfillment_plans=plans,
-            response_payload=response_data,
-        )
-
-        return response_data
 
     async def confirm_checkout(
         self,
