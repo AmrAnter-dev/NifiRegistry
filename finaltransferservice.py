@@ -13,6 +13,7 @@ class TransferService:
         transfer_event_waiter,
         lock_manager: RedisLockManager,
     ):
+        
         self.inventory_service = inventory_service
         self.branch_service = branch_service
         self.transfer_repository = transfer_repository
@@ -20,6 +21,7 @@ class TransferService:
         self.lock_manager = lock_manager
 
     async def fulfill_item(self, item: CartItem) -> FulfillmentPlan:
+        
         requested_quantity = item.requested_quantity
 
         # 1. LOCAL AVAILABLE
