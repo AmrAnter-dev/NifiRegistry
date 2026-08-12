@@ -1,9 +1,9 @@
 import asyncio
-
+from typing import List
 
 class TransferService:
 
-    TRANSFER_TIMEOUT_SECONDS = 15 * 60
+    TRANSFER_TIMEOUT_SECONDS = 15 * 60  # 15 Minutes
 
     def __init__(
         self,
@@ -11,128 +11,82 @@ class TransferService:
         branch_service,
         transfer_repository,
         transfer_event_waiter,
+        lock_manager: RedisLockManager,
     ):
         self.inventory_service = inventory_service
         self.branch_service = branch_service
         self.transfer_repository = transfer_repository
         self.transfer_event_waiter = transfer_event_waiter
+        self.lock_manager = lock_manager
 
-    async def fulfill_item(
-        self,
-        item: CartItem,
-    ) -> FulfillmentPlan:
-
+    async def fulfill_item(self, item: CartItem) -> FulfillmentPlan:
         requested_quantity = item.requested_quantity
 
-        # ==================================================
         # 1. LOCAL AVAILABLE
-        # ==================================================
-
         if item.status == CartItemStatus.LOCAL_AVAILABLE:
-
             return FulfillmentPlan(
                 item=item,
                 local_quantity=requested_quantity,
                 fulfilled=True,
             )
 
-        # ==================================================
         # 2. PARTIALLY AVAILABLE
-        #
-        # Example:
-        # requested = 10
-        # local = 6
-        # transfer = 4
-        # ==================================================
-
         if item.status == CartItemStatus.PARTIALLY_AVAILABLE:
-
             local_quantity = min(
                 item.local_available_quantity,
                 requested_quantity,
             )
-
-            transfer_quantity = (
-                requested_quantity - local_quantity
-            )
+            transfer_quantity = requested_quantity - local_quantity
 
             if transfer_quantity <= 0:
-
                 return FulfillmentPlan(
                     item=item,
                     local_quantity=local_quantity,
                     fulfilled=True,
                 )
 
-            transfer_allocations = (
-                await self._fulfill_from_network(
-                    item=item,
-                    quantity=transfer_quantity,
-                )
+            transfer_allocations = await self._fulfill_from_network(
+                item=item,
+                quantity=transfer_quantity,
             )
 
             transferred_quantity = sum(
-                allocation.quantity
-                for allocation in transfer_allocations
-            )
-
-            fulfilled = (
-                local_quantity + transferred_quantity
-                >= requested_quantity
+                allocation.quantity for allocation in transfer_allocations
             )
 
             return FulfillmentPlan(
                 item=item,
                 local_quantity=local_quantity,
                 transfer_allocations=transfer_allocations,
-                fulfilled=fulfilled,
+                fulfilled=(local_quantity + transferred_quantity >= requested_quantity),
             )
 
-        # ==================================================
         # 3. NETWORK AVAILABLE
-        #
-        # local = 0
-        # transfer = requested
-        # ==================================================
-
         if item.status == CartItemStatus.NETWORK_AVAILABLE:
-
-            transfer_allocations = (
-                await self._fulfill_from_network(
-                    item=item,
-                    quantity=requested_quantity,
-                )
+            transfer_allocations = await self._fulfill_from_network(
+                item=item,
+                quantity=requested_quantity,
             )
 
             transferred_quantity = sum(
-                allocation.quantity
-                for allocation in transfer_allocations
+                allocation.quantity for allocation in transfer_allocations
             )
 
             return FulfillmentPlan(
                 item=item,
                 local_quantity=0,
                 transfer_allocations=transfer_allocations,
-                fulfilled=(
-                    transferred_quantity
-                    >= requested_quantity
-                ),
+                fulfilled=(transferred_quantity >= requested_quantity),
             )
 
-        # ==================================================
         # 4. OUT OF STOCK
-        # ==================================================
-
         if item.status == CartItemStatus.OUT_OF_STOCK:
-
             return FulfillmentPlan(
                 item=item,
                 fulfilled=False,
             )
 
-        raise ValueError(
-            f"Unsupported item status: {item.status}"
-        )
+        raise ValueError(f"Unsupported item status: {item.status}")
 
     # ======================================================
     # NETWORK FULFILLMENT
@@ -142,139 +96,88 @@ class TransferService:
         self,
         item: CartItem,
         quantity: int,
-    ) -> list[TransferAllocation]:
+    ) -> List[TransferAllocation]:
 
-        remaining_quantity = quantity
+        lock_key = f"inventory_lock:{item.item_code}"
 
-        # --------------------------------------------------
-        # 1. Get stock allocations
-        # --------------------------------------------------
+        # 1. Acquire Lock for Stock Planning
+        async with self.lock_manager.acquire_lock(lock_key=lock_key, timeout_seconds=15):
+            remaining_quantity = quantity
 
-        allocations = await self._get_allocations(
-            item_code=item.item_code,
-            requested_quantity=quantity,
-        )
-
-        # --------------------------------------------------
-        # 2. Only branches with stock > 0
-        # --------------------------------------------------
-
-        branch_ids = [
-            allocation.branch_id
-            for allocation in allocations
-            if allocation.available_quantity > 0
-        ]
-
-        if not branch_ids:
-            return []
-
-        # --------------------------------------------------
-        # 3. PostGIS:
-        # Get nearest branches among eligible branches
-        # --------------------------------------------------
-
-        branches = await self.branch_service.get_nearest_branches(
-            customer_branch_id=item.customer_branch_id,
-            branch_ids=branch_ids,
-        )
-
-        allocation_by_branch = {
-            allocation.branch_id: allocation
-            for allocation in allocations
-        }
-
-        # --------------------------------------------------
-        # 4. Build an allocation plan
-        #
-        # We can split the requested quantity across
-        # multiple branches.
-        # --------------------------------------------------
-
-        planned_allocations = []
-
-        for branch in branches:
-
-            if remaining_quantity <= 0:
-                break
-
-            stock = allocation_by_branch[branch.id]
-
-            quantity_from_branch = min(
-                stock.available_quantity,
-                remaining_quantity,
+            # Fetch Available Stocks
+            allocations = await self._get_allocations(
+                item_code=item.item_code,
+                requested_quantity=quantity,
             )
 
-            if quantity_from_branch <= 0:
-                continue
+            branch_ids = [
+                alloc.branch_id for alloc in allocations if alloc.qty_available > 0
+            ]
 
-            planned_allocations.append(
-                TransferAllocation(
-                    source_id=branch.id,
-                    quantity=quantity_from_branch,
-                    source=FulfillmentSource.NETWORK_BRANCH,
+            planned_allocations: List[TransferAllocation] = []
+
+            if branch_ids:
+                # Get nearest branches via PostGIS
+                branches = await self.branch_service.get_nearest_branches(
+                    customer_branch_id=item.customer_branch_id,
+                    branch_ids=branch_ids,
                 )
-            )
 
-            remaining_quantity -= quantity_from_branch
+                allocation_by_branch = {
+                    alloc.branch_id: alloc for alloc in allocations
+                }
 
-        # --------------------------------------------------
-        # 5. IMPORTANT:
-        # Only now do we go to the warehouse.
-        #
-        # Branch network is exhausted first.
-        # --------------------------------------------------
+                # Build Branch Allocation Plan
+                for branch in branches:
+                    if remaining_quantity <= 0:
+                        break
 
-        if remaining_quantity > 0:
+                    stock = allocation_by_branch.get(branch.id)
+                    if not stock:
+                        continue
 
-            planned_allocations.append(
-                TransferAllocation(
-                    source_id=await self._get_warehouse_id(),
-                    quantity=remaining_quantity,
-                    source=FulfillmentSource.MAIN_WAREHOUSE,
+                    quantity_from_branch = min(stock.qty_available, remaining_quantity)
+
+                    if quantity_from_branch <= 0:
+                        continue
+
+                    planned_allocations.append(
+                        TransferAllocation(
+                            source_id=branch.id,
+                            quantity=quantity_from_branch,
+                            source=FulfillmentSource.NETWORK_BRANCH,
+                        )
+                    )
+                    remaining_quantity -= quantity_from_branch
+
+            # Fallback to Main Warehouse if Network is insufficient
+            if remaining_quantity > 0:
+                warehouse_id = await self._get_warehouse_id()
+                planned_allocations.append(
+                    TransferAllocation(
+                        source_id=warehouse_id,
+                        quantity=remaining_quantity,
+                        source=FulfillmentSource.MAIN_WAREHOUSE,
+                    )
                 )
-            )
 
-        # --------------------------------------------------
-        # 6. Execute transfers
-        # --------------------------------------------------
-network_results = await asyncio.gather(
-    *[
-        self._execute_transfer(
-            item=item,
-            allocation=allocation,
+        # 2. Execute Transfers (Outside lock to minimize lock hold time)
+        network_results = await asyncio.gather(
+            *[
+                self._execute_transfer(item=item, allocation=allocation)
+                for allocation in planned_allocations
+            ],
+            return_exceptions=True,
         )
-        for allocation in network_allocations
-    ]
-)
 
-fulfilled_quantity = sum(
-    allocation.quantity
-    for allocation, result
-    in zip(network_allocations, network_results)
-    if result.status == TransferStatus.FULFILLED
-)
-
-remaining_quantity = quantity - fulfilled_quantity
-
-if remaining_quantity > 0:
-    # NOW warehouse
-        
-
-        # --------------------------------------------------
-        # 7. Keep only successful transfers
-        # --------------------------------------------------
-
+        # 3. Filter Successful Allocations
         successful_allocations = []
-
-        for allocation, result in zip(
-            planned_allocations,
-            results,
-        ):
-            if result.status == TransferStatus.FULFILLED:
-
-                successful_allocations.append(
-                    allocation
-                )
+        for allocation, result in zip(planned_allocations, network_results):
+            if (
+                not isinstance(result, Exception)
+                and result.status == TransferStatus.FULFILLED
+            ):
+                successful_allocations.append(allocation)
 
         return successful_allocations
 
@@ -282,21 +185,13 @@ if remaining_quantity > 0:
     # GET STOCK
     # ======================================================
 
-    async def _get_allocations(
-        self,
-        item_code: str,
-        requested_quantity: int,
-    ):
-
-        # Cache first
+    async def _get_allocations(self, item_code: str, requested_quantity: int):
         cached = await self.transfer_repository.get_cached_allocations(
-            item_code=item_code,
+            item_code=item_code
         )
-
         if cached is not None:
             return cached
 
-        # Cache miss
         return await self.inventory_service.check_for_all_branches_stock(
             item_code=item_code,
             requested_quantity=requested_quantity,
@@ -312,10 +207,6 @@ if remaining_quantity > 0:
         allocation: TransferAllocation,
     ) -> TransferResult:
 
-        # --------------------------------------------------
-        # Create transfer
-        # --------------------------------------------------
-
         transfer = await self.transfer_repository.create_transfer(
             item_code=item.item_code,
             quantity=allocation.quantity,
@@ -324,17 +215,14 @@ if remaining_quantity > 0:
             source_type=allocation.source,
         )
 
-        # --------------------------------------------------
-        # Wait for Debezium/CDC event
-        # OR timeout after 15 minutes
-        # --------------------------------------------------
-
-        status = (
-            await self.transfer_event_waiter.wait_for_status(
-                transfer_id=transfer.id,
-                timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
-            )
-        )
+        try:
+            async with asyncio.timeout(self.TRANSFER_TIMEOUT_SECONDS):
+                status = await self.transfer_event_waiter.wait_for_status(
+                    transfer_id=transfer.id,
+                    timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
+                )
+        except TimeoutError:
+            status = TransferStatus.FAILED
 
         return TransferResult(
             transfer_id=transfer.id,
@@ -343,5 +231,4 @@ if remaining_quantity > 0:
         )
 
     async def _get_warehouse_id(self) -> int:
-
         return await self.branch_service.get_main_warehouse_id()
