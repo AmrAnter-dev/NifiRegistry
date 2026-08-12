@@ -1,3 +1,7 @@
+import asyncio
+from typing import Any, Dict, List, Optional
+
+
 class CheckoutService:
 
     def __init__(
@@ -20,26 +24,16 @@ class CheckoutService:
         session_id: str,
         checkout_id: str,
         idempotency_key: str,
-    ):
+    ) -> Dict[str, Any]:
 
-        # ==================================================
-        # 1. Idempotency
-        # ==================================================
-
-        existing = (
-            await self.checkout_repository
-            .get_by_idempotency_key(
-                idempotency_key
-            )
+        # 1. Idempotency Check
+        existing = await self.checkout_repository.get_by_idempotency_key(
+            idempotency_key
         )
-
         if existing:
-            return existing
+            return existing.response_payload  # إرجاع الاستجابة المحفوظة بدلاً من الكائن المباشر
 
-        # ==================================================
         # 2. Get Cart
-        # ==================================================
-
         cart = await self.shopping_cart_service.get_cart(
             customer_id=customer_id,
             session_id=session_id,
@@ -48,87 +42,54 @@ class CheckoutService:
         if not cart or not cart.items:
             raise ValueError("Cart is empty")
 
-        # ==================================================
-        # 3. Fulfill ALL cart items in parallel
-        # ==================================================
-
-        plans = await asyncio.gather(
-            *[
-                self.transfer_service.fulfill_item(item)
-                for item in cart.items
-            ]
+        # 3. Fulfill ALL cart items in parallel (with exception handling)
+        results = await asyncio.gather(
+            *[self.transfer_service.fulfill_item(item) for item in cart.items],
+            return_exceptions=True,
         )
 
-        # ==================================================
+        plans = []
+        for res in results:
+            if isinstance(res, Exception):
+                # التعامل مع الأخطاء غير المتوقعة في الفحص
+                raise res
+            plans.append(res)
+
         # 4. Items that could not be fully fulfilled
-        # ==================================================
+        failed_plans = [plan for plan in plans if not plan.fulfilled]
 
-        failed_plans = [
-            plan
-            for plan in plans
-            if not plan.fulfilled
-        ]
-
-        # ==================================================
-        # 5. Recommendation Engine
-        # ==================================================
-
+        # 5. Recommendation Engine Handling
         if failed_plans:
-
             recommendations = (
-                await self.recommendation_engine
-                .recommend_for_items(
-                    [
-                        plan.item
-                        for plan in failed_plans
-                    ]
+                await self.recommendation_engine.recommend_for_items(
+                    [plan.item for plan in failed_plans]
                 )
             )
 
-            # We DO NOT create order for failed items.
-            #
-            # The customer can:
-            # - reduce quantity
-            # - remove item
-            # - select alternative
-            # - continue with available quantity
-            #
+            response_data = {
+                "checkout_id": checkout_id,
+                "status": CheckoutStatus.ACTION_REQUIRED,
+                "failed_items": [
+                    self._item_response(plan) for plan in failed_plans
+                ],
+                "recommendations": recommendations,
+            }
 
             await self.checkout_repository.save(
                 checkout_id=checkout_id,
                 idempotency_key=idempotency_key,
                 status=CheckoutStatus.ACTION_REQUIRED,
                 fulfillment_plans=plans,
+                response_payload=response_data,
             )
 
-            return {
-                "checkout_id": checkout_id,
-                "status": CheckoutStatus.ACTION_REQUIRED,
-                "failed_items": [
-                    self._item_response(plan)
-                    for plan in failed_plans
-                ],
-                "recommendations": recommendations,
-            }
+            return response_data
 
-        # ==================================================
-        # 6. Check whether any transfer is involved
-        # ==================================================
+        # 6. Check for Transfers
+        transfer_plans = [plan for plan in plans if plan.transfer_allocations]
 
-        transfer_plans = [
-            plan
-            for plan in plans
-            if plan.transfer_allocations
-        ]
-
-        # ==================================================
         # 7. Everything local
-        #
-        # No customer decision required.
-        # ==================================================
-
         if not transfer_plans:
-
             order = await self.order_service.create_order(
                 customer_id=customer_id,
                 checkout_id=checkout_id,
@@ -140,39 +101,30 @@ class CheckoutService:
                 idempotency_key=idempotency_key,
                 status=CheckoutStatus.COMPLETED,
                 fulfillment_plans=plans,
+                response_payload=order,
+            )
+
+            # تفريغ السلة بعد نجاح الطلب
+            await self.shopping_cart_service.clear_cart(
+                customer_id=customer_id, session_id=session_id
             )
 
             return order
 
-        # ==================================================
-        # 8. Transfer exists.
-        #
-        # Customer needs to choose shipping strategy.
-        # ==================================================
-
-        await self.checkout_repository.save(
-            checkout_id=checkout_id,
-            idempotency_key=idempotency_key,
-            status=CheckoutStatus.ACTION_REQUIRED,
-            fulfillment_plans=plans,
-        )
-
-        return {
+        # 8. Transfer exists
+        response_data = {
             "checkout_id": checkout_id,
             "status": CheckoutStatus.ACTION_REQUIRED,
             "reason": "TRANSFER_REQUIRED",
-
             "transfer_items": [
-                self._transfer_item_response(plan)
-                for plan in transfer_plans
+                self._transfer_item_response(plan) for plan in transfer_plans
             ],
-
             "options": [
                 {
                     "id": ShipmentOption.SEPARATE_SHIPMENT,
                     "description": (
-                        "Send available items now and "
-                        "transferred items separately."
+                        "Send available items now and transferred items"
+                        " separately."
                     ),
                     "additional_transfer_fee": 0,
                     "additional_delivery_fee": 0,
@@ -180,8 +132,8 @@ class CheckoutService:
                 {
                     "id": ShipmentOption.WAIT_FOR_ALL,
                     "description": (
-                        "Wait until transferred items "
-                        "arrive and send everything together."
+                        "Wait until transferred items arrive and send"
+                        " everything together."
                     ),
                     "additional_transfer_fee": 0,
                     "additional_delivery_fee": 0,
@@ -189,79 +141,54 @@ class CheckoutService:
             ],
         }
 
-    # ======================================================
-    # CUSTOMER CONFIRMS SHIPPING STRATEGY
-    # ======================================================
+        await self.checkout_repository.save(
+            checkout_id=checkout_id,
+            idempotency_key=idempotency_key,
+            status=CheckoutStatus.ACTION_REQUIRED,
+            fulfillment_plans=plans,
+            response_payload=response_data,
+        )
+
+        return response_data
 
     async def confirm_checkout(
         self,
         checkout_id: str,
         shipment_option: ShipmentOption,
-    ):
+    ) -> Dict[str, Any]:
 
-        checkout = (
-            await self.checkout_repository
-            .get(checkout_id)
-        )
+        checkout = await self.checkout_repository.get(checkout_id)
 
         if not checkout:
             raise ValueError("Checkout not found")
 
         if checkout.status != CheckoutStatus.ACTION_REQUIRED:
-            raise ValueError(
-                "Checkout is not waiting for customer action"
-            )
+            raise ValueError("Checkout is not waiting for customer action")
 
         plans = checkout.fulfillment_plans
 
-        # ==================================================
-        # SEPARATE SHIPMENT
-        # ==================================================
-
         if shipment_option == ShipmentOption.SEPARATE_SHIPMENT:
-
             local_plans = [
-                plan
-                for plan in plans
-                if not plan.transfer_allocations
+                plan for plan in plans if not plan.transfer_allocations
             ]
-
             transfer_plans = [
-                plan
-                for plan in plans
-                if plan.transfer_allocations
+                plan for plan in plans if plan.transfer_allocations
             ]
-
-            # ----------------------------------------------
-            # Order immediately executable
-            # ----------------------------------------------
 
             executable_order = None
-
             if local_plans:
-
-                executable_order = (
-                    await self.order_service.create_order(
-                        checkout_id=checkout_id,
-                        fulfillment_plans=local_plans,
-                        status="READY_FOR_EXECUTION",
-                    )
+                executable_order = await self.order_service.create_order(
+                    checkout_id=checkout_id,
+                    fulfillment_plans=local_plans,
+                    status=OrderStatus.READY_FOR_EXECUTION,
                 )
 
-            # ----------------------------------------------
-            # Pending order for transfer items
-            # ----------------------------------------------
-
             pending_order = None
-
             if transfer_plans:
-
-                pending_order = (
-                    await self.order_service.create_order(
-                        checkout_id=checkout_id,
-                        fulfillment_plans=transfer_plans,
-                        status="PENDING_FOR_TRANSFER",
-                    )
+                pending_order = await self.order_service.create_order(
+                    checkout_id=checkout_id,
+                    fulfillment_plans=transfer_plans,
+                    status=OrderStatus.PENDING_FOR_TRANSFER,
                 )
 
             await self.checkout_repository.update_status(
@@ -276,16 +203,11 @@ class CheckoutService:
                 "pending_order": pending_order,
             }
 
-        # ==================================================
-        # WAIT FOR ALL
-        # ==================================================
-
         if shipment_option == ShipmentOption.WAIT_FOR_ALL:
-
             order = await self.order_service.create_order(
                 checkout_id=checkout_id,
                 fulfillment_plans=plans,
-                status="PENDING_FOR_TRANSFER",
+                status=OrderStatus.PENDING_FOR_TRANSFER,
             )
 
             await self.checkout_repository.update_status(
@@ -295,25 +217,14 @@ class CheckoutService:
 
             return order
 
-        raise ValueError(
-            f"Unsupported shipment option: {shipment_option}"
-        )
-
-    # ======================================================
-    # RESPONSE HELPERS
-    # ======================================================
+        raise ValueError(f"Unsupported shipment option: {shipment_option}")
 
     def _item_response(
         self,
         plan: FulfillmentPlan,
-    ):
-
-        fulfilled_quantity = (
-            plan.local_quantity
-            + sum(
-                allocation.quantity
-                for allocation in plan.transfer_allocations
-            )
+    ) -> Dict[str, Any]:
+        fulfilled_quantity = plan.local_quantity + sum(
+            allocation.quantity for allocation in plan.transfer_allocations
         )
 
         return {
@@ -326,8 +237,7 @@ class CheckoutService:
     def _transfer_item_response(
         self,
         plan: FulfillmentPlan,
-    ):
-
+    ) -> Dict[str, Any]:
         return {
             "item_code": plan.item.item_code,
             "requested_quantity": plan.item.requested_quantity,
