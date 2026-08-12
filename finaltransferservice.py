@@ -204,33 +204,41 @@ class TransferService:
     # ======================================================
 
     async def _execute_transfer(
-        self,
-        item: CartItem,
-        allocation: TransferAllocation,
-    ) -> TransferResult:
+    self,
+    item: CartItem,
+    allocation: TransferAllocation,
+) -> TransferResult:
 
-        transfer = await self.transfer_repository.create_transfer(
-            item_code=item.item_code,
-            quantity=allocation.quantity,
-            source_id=allocation.source_id,
-            destination_branch_id=item.customer_branch_id,
-            source_type=allocation.source,
-        )
+    # يتم إنشاء السجل في DB الفرع المصدر (allocation.source_id)
+    transfer = await self.transfer_repository.create_transfer(
+        item_code=item.item_code,
+        quantity=allocation.quantity,
+        source_id=allocation.source_id,
+        destination_branch_id=item.customer_branch_id,
+        source_type=allocation.source,
+    )
 
-        try:
-            async with asyncio.timeout(self.TRANSFER_TIMEOUT_SECONDS):
-                status = await self.transfer_event_waiter.wait_for_status(
-                    transfer_id=transfer.id,
-                    timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
-                )
-        except TimeoutError:
-            status = TransferStatus.FAILED
+    try:
+        async with asyncio.timeout(self.TRANSFER_TIMEOUT_SECONDS):
+            status = await self.transfer_event_waiter.wait_for_status(
+                transfer_id=transfer.id,
+                timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
+            )
+    except TimeoutError:
+        status = TransferStatus.FAILED
 
-        return TransferResult(
+        # تحديث الحالة إلى FAILED في قاعدة بيانات الفرع المصدر
+        await self.transfer_repository.update_status(
             transfer_id=transfer.id,
-            status=status,
             source_id=allocation.source_id,
+            status=TransferStatus.FAILED,
         )
+
+    return TransferResult(
+        transfer_id=transfer.id,
+        status=status,
+        source_id=allocation.source_id,
+    )
 
     async def _get_warehouse_id(self) -> int:
         return await self.branch_service.get_main_warehouse_id()
