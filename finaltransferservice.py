@@ -203,13 +203,13 @@ class TransferService:
     # EXECUTE ONE TRANSFER
     # ======================================================
 
-    async def _execute_transfer(
+   async def _execute_transfer(
     self,
     item: CartItem,
     allocation: TransferAllocation,
 ) -> TransferResult:
 
-    # يتم إنشاء السجل في DB الفرع المصدر (allocation.source_id)
+    # 1. إنشاء سجل التحويل بحالة PENDING
     transfer = await self.transfer_repository.create_transfer(
         item_code=item.item_code,
         quantity=allocation.quantity,
@@ -218,16 +218,16 @@ class TransferService:
         source_type=allocation.source,
     )
 
+    # 2. الانتظار بحصر زمني حتى يقوم موظف الفرع بالتعديل أو ينتهي الوقت
     try:
-        async with asyncio.timeout(self.TRANSFER_TIMEOUT_SECONDS):
-            status = await self.transfer_event_waiter.wait_for_status(
-                transfer_id=transfer.id,
-                timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
-            )
-    except TimeoutError:
+        status = await self.transfer_event_waiter.wait_for_status(
+            transfer_id=transfer.id,
+            timeout_seconds=self.TRANSFER_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
         status = TransferStatus.FAILED
 
-        # تحديث الحالة إلى FAILED في قاعدة بيانات الفرع المصدر
+        # تحديث الحالة إلى FAILED في قاعدة البيانات عند تجاوز الوقت المسموح
         await self.transfer_repository.update_status(
             transfer_id=transfer.id,
             source_id=allocation.source_id,
@@ -239,6 +239,5 @@ class TransferService:
         status=status,
         source_id=allocation.source_id,
     )
-
     async def _get_warehouse_id(self) -> int:
         return await self.branch_service.get_main_warehouse_id()
