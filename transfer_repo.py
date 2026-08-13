@@ -81,6 +81,41 @@ class TransferRepository:
                 notes=record["notes"],
             )
             
-async def listen_to_transfers(): 
+async def update_status(
+    self,
+    transfer_id: str,
+    branch_name: str,
+    status: TransferStatus,
+) -> TransferEntity:
+    """
+    تحديث حالة طلب التحويل في قاعدة بيانات الفرع المصدر
+    """
     async with self.pool_manager.get_connection(branch_name) as conn:
-        await conn.add_listener('transfer_status_channel', my_callback_function)
+        query = """
+            UPDATE transfer.transfer
+            SET status = $1,
+                updated_at = NOW()
+            WHERE id = $2
+            RETURNING transfer_id, item_code, quantity, source_id, destination_branch_id, source_type, status;
+        """
+        
+        record = await conn.fetch_one(
+            query,
+            status.value,  # تمرير القيمة النصية لـ Enum
+            transfer_id, 
+        )
+
+        if not record:
+            raise ValueError(f"Transfer with ID {transfer_id} not found in source {source_id}.")
+
+        return TransferEntity(
+            transfer_id=str(record["id"]),
+            item_code=record["item_code"],
+            quantity=record["quantity"],
+            source_id=record["source_id"],
+            destination_branch_id=record["destination_branch_id"],
+            source_type=record["source_type"],
+            status=TransferStatus(record["status"]),
+        )
+        
+       
