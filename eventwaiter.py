@@ -28,10 +28,4 @@ class TransferEventWaiter:
 
 
 
-def on_postgres_notification(connection, pid, channel, payload):
-    data = json.loads(payload)
-    transfer_id = str(data['transfer_id'])
-    new_status = TransferStatus(data['status'])
 
-    # إبلاغ الـ Waiter بأن الـ transfer_id ده وصله رد
-    transfer_event_waiter.notify_status_received(transfer_id, new_status)
