@@ -6,7 +6,8 @@ from typing import Any
 
 class TransferStatus(str, Enum):
     PENDING = "PENDING"
-    COMPLETED = "COMPLETED"
+    APPROVED = "APPROVED"
+    REJECTED="REJECTED
     FAILED = "FAILED"
 
 
