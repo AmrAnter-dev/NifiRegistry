@@ -61,33 +61,37 @@ class IdempotencyStore:
 
         self._complete_script = self.redis.register_script(
             """
-            local current = redis.call("GET", KEYS[1])
-
-            if not current then
-                return -1
-            end
-
-            local data = cjson.decode(current)
-
-            if data["status"] ~= "IN_PROGRESS" then
-                return -2
-            end
-
-            if data["token"] ~= ARGV[1] then
-                return -3
-            end
-
-            local result = ARGV[2]
-            local ttl = ARGV[3]
-
-            local payload = cjson.encode({
-                status = "COMPLETED",
-                result = cjson.decode(result)
-            })
-
-            redis.call("SET", KEYS[1], payload, "EX", ttl)
-
-            return 1
+         local current = redis.call("GET", KEYS[1])
+        if not current then
+            return -1
+        end
+        
+        local ok, data = pcall(cjson.decode, current)
+        if not ok or type(data) ~= "table" then
+            return -1
+        end
+        
+        if data["status"] ~= "IN_PROGRESS" then
+            return -2
+        end
+        
+        if data["token"] ~= ARGV[1] then
+            return -3
+        end
+        
+        local result = ARGV[2]
+        local ttl = ARGV[3]
+        
+        local ok_res, decoded_result = pcall(cjson.decode, result)
+        local payload_result = ok_res and decoded_result or result
+        
+        local payload = cjson.encode({
+            status = "COMPLETED",
+            result = payload_result
+        })
+        
+        redis.call("SET", KEYS[1], payload, "EX", ttl)
+        return 1
             """
         )
 
