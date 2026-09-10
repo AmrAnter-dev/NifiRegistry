@@ -1,3 +1,6 @@
+CREATE SCHEMA inventory;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE sales.orderitem (
     order_item_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
@@ -52,26 +55,125 @@ CREATE TABLE sales.orderheader (
         UNIQUE (order_number)
 );
 
-CREATE TABLE sales.transfer (
-    transfer_id         UUID PRIMARY KEY,
 
-    order_item_id       BIGINT NOT NULL,
+CREATE TABLE inventory.product_inventory
+(
+    inventory_id BIGINT GENERATED ALWAYS AS IDENTITY,
 
-    source_id            BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+	
+	item_code VARCHAR(50) NOT NULL UNIQUE,
+	
+    quantity_on_hand INTEGER NOT NULL DEFAULT 0,
 
-    source_type          VARCHAR(30) NOT NULL,
+    reserved_quantity INTEGER NOT NULL DEFAULT 0,
 
-    quantity             INT NOT NULL,
+    available_quantity INTEGER GENERATED ALWAYS AS
+    (
+        quantity_on_hand - reserved_quantity
+    ) STORED,
 
-    status               VARCHAR(30) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_transfer_orderitem
-        FOREIGN KEY (order_item_id)
-        REFERENCES sales.orderitem(order_item_id),
+    CONSTRAINT pk_product_inventory
+        PRIMARY KEY (inventory_id),
+
+    CONSTRAINT uq_product_inventory_product
+        UNIQUE (product_id),
+
+    CONSTRAINT ck_quantity_on_hand
+        CHECK (quantity_on_hand >= 0),
+
+    CONSTRAINT ck_reserved_quantity
+        CHECK (reserved_quantity >= 0),
+
+    CONSTRAINT ck_reserved_not_exceed_on_hand
+        CHECK (reserved_quantity <= quantity_on_hand)
+		
+	CONSTRAINT FK_product_inventory_product
+        FOREIGN KEY (product_id)
+        REFERENCES product.product(product_id),
+
+);
+
+CREATE TABLE inventory.reservation
+(
+    reservation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    product_id BIGINT NOT NULL,
+
+    quantity INTEGER NOT NULL,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+
+    expires_at TIMESTAMPTZ NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    released_at TIMESTAMPTZ NULL,
+
+    CONSTRAINT ck_reservation_quantity
+        CHECK (quantity > 0),
+
+    CONSTRAINT ck_reservation_status
+        CHECK
+        (
+            status IN
+            (
+                'ACTIVE',
+                'COMPLETED',
+                'RELEASED',
+                'EXPIRED'
+            )
+        )
+	CONSTRAINT FK_reservation_product
+        FOREIGN KEY (product_id)
+        REFERENCES product.product(product_id),
+);
+CREATE TABLE inventory.transfer
+(
+    transfer_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    product_id BIGINT NOT NULL,
+
+    destination_branch_id UUID NOT NULL,
+
+    quantity INTEGER NOT NULL,
+
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    approved_at TIMESTAMPTZ,
+
+    shipped_at TIMESTAMPTZ,
+
+    received_at TIMESTAMPTZ,
+
+    cancelled_at TIMESTAMPTZ,
 
     CONSTRAINT ck_transfer_quantity
-        CHECK (quantity > 0)
+        CHECK (quantity > 0),
+
+
+    CONSTRAINT ck_transfer_status
+        CHECK
+        (
+            status IN
+            (
+               'PENDING',
+                'APPROVED',
+                'REJECTED',
+                'FAILED'
+            )
+        )
+	CONSTRAINT FK_transfer_product
+        FOREIGN KEY (product_id)
+        REFERENCES product.product(product_id)
+		
+
+		
+	
 );
