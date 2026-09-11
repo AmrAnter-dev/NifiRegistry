@@ -365,12 +365,13 @@ CREATE TABLE inventory.product_inventory
 	
     quantity_on_hand INTEGER NOT NULL DEFAULT 0,
 
-    reserved_quantity INTEGER NOT NULL DEFAULT 0,
+    quantity_reserved INTEGER NOT NULL DEFAULT 0,
 
-    available_quantity INTEGER GENERATED ALWAYS AS
+    quantity_available INTEGER GENERATED ALWAYS AS
     (
         quantity_on_hand - reserved_quantity
     ) STORED,
+	reorder_point 	INTEGER ,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
