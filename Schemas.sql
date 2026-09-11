@@ -477,3 +477,310 @@ CREATE TABLE inventory.transfer
 		
 	
 );
+-- ============================================================
+-- Schema: inventory
+-- Table:  inventory.product_inventory
+-- ============================================================
+
+CREATE TABLE inventory.warehouse (
+    warehouse_id    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    warehouse_name  VARCHAR(100) NOT NULL UNIQUE,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE inventory.product_inventory (
+    -- ---------- Primary Identity ----------
+    inventory_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    product_id           BIGINT       NOT NULL REFERENCES product.product(product_id),
+    warehouse_id         BIGINT       NOT NULL REFERENCES inventory.warehouse(warehouse_id),
+
+    -- ---------- Batch / Serial (nullable — يتفرض إلزامها بشرط) ----------
+    batch_number         VARCHAR(50),
+    expiry_date          DATE,
+    serial_number         VARCHAR(100),
+
+    -- ---------- Quantities ----------
+    quantity_on_hand      INTEGER      NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
+    quantity_reserved      INTEGER      NOT NULL DEFAULT 0 CHECK (quantity_reserved >= 0),
+    reorder_point           INTEGER      NOT NULL DEFAULT 0,
+
+    -- ---------- Costing (اختياري لو محتاج تتبع تكلفة) ----------
+    unit_cost              NUMERIC(12,2) CHECK (unit_cost IS NULL OR unit_cost >= 0),
+
+    -- ---------- Audit / Governance ----------
+    received_date            DATE          NOT NULL DEFAULT CURRENT_DATE,
+    created_at               TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    created_by               VARCHAR(100)  NOT NULL DEFAULT current_user,
+    updated_at               TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    updated_by               VARCHAR(100),
+    row_version              INTEGER       NOT NULL DEFAULT 1,
+    is_deleted                BOOLEAN       NOT NULL DEFAULT FALSE,
+    deleted_at                TIMESTAMPTZ,
+
+    -- ---------- Constraints ----------
+    CONSTRAINT chk_reserved_le_onhand CHECK (quantity_reserved <= quantity_on_hand),
+    CONSTRAINT chk_inventory_soft_delete CHECK (
+        (is_deleted = FALSE AND deleted_at IS NULL) OR
+        (is_deleted = TRUE  AND deleted_at IS NOT NULL)
+    ),
+
+    -- منع تكرار نفس الـ batch لنفس المنتج في نفس المخزن
+    CONSTRAINT uq_inventory_batch UNIQUE NULLS NOT DISTINCT (product_id, warehouse_id, batch_number, serial_number)
+);
+
+-- ============================================================
+-- Enforcement: batch/serial إلزامية حسب نوع المنتج
+-- (بدل ما تسيبها للتطبيق، بتتفرض من الـ DB نفسه)
+-- ============================================================
+CREATE OR REPLACE FUNCTION inventory.trg_enforce_tracking_rules()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_requires_batch  BOOLEAN;
+    v_requires_serial BOOLEAN;
+BEGIN
+    SELECT requires_batch_tracking, requires_serial_tracking
+    INTO v_requires_batch, v_requires_serial
+    FROM product.product
+    WHERE product_id = NEW.product_id;
+
+    IF v_requires_batch AND (NEW.batch_number IS NULL OR NEW.expiry_date IS NULL) THEN
+        RAISE EXCEPTION 'Product % requires batch_number and expiry_date', NEW.product_id;
+    END IF;
+
+    IF v_requires_serial AND NEW.serial_number IS NULL THEN
+        RAISE EXCEPTION 'Product % requires serial_number', NEW.product_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER enforce_tracking_rules
+BEFORE INSERT OR UPDATE ON inventory.product_inventory
+FOR EACH ROW
+EXECUTE FUNCTION inventory.trg_enforce_tracking_rules();
+
+-- ============================================================
+-- Trigger: updated_at / row_version (نفس الفنكشن المشترك)
+-- ============================================================
+CREATE TRIGGER set_updated_at
+BEFORE UPDATE ON inventory.product_inventory
+FOR EACH ROW
+EXECUTE FUNCTION product.trg_set_updated_at();
+
+-- ============================================================
+-- Indexes
+-- ============================================================
+CREATE INDEX idx_inventory_product_wh   ON inventory.product_inventory(product_id, warehouse_id);
+CREATE INDEX idx_inventory_expiry       ON inventory.product_inventory(expiry_date)
+    WHERE expiry_date IS NOT NULL AND is_deleted = FALSE;   -- أساسي لتقارير FEFO ومنتجات قربت تنتهي
+
+CREATE INDEX idx_inventory_low_stock    ON inventory.product_inventory(product_id, warehouse_id)
+    WHERE quantity_on_hand <= reorder_point AND is_deleted = FALSE;
+
+-- ============================================================
+-- View: الكمية المتاحة الفعلية للبيع (على مستوى المنتج مش الـ batch)
+-- ده اللي بوت الـ WhatsApp هيستعلم منه فعليًا
+-- ============================================================
+CREATE VIEW inventory.v_available_stock AS
+SELECT
+    product_id,
+    warehouse_id,
+    SUM(quantity_on_hand - quantity_reserved) AS available_qty,
+    MIN(expiry_date) FILTER (WHERE expiry_date IS NOT NULL) AS nearest_expiry
+FROM inventory.product_inventory
+WHERE is_deleted = FALSE
+GROUP BY product_id, warehouse_id;
+
+-- ============================================================
+-- Comments
+-- ============================================================
+COMMENT ON TABLE inventory.product_inventory IS
+    'Operational stock table. Batch/serial tracking enforced conditionally via trigger based on product.product flags.';
+COMMENT ON COLUMN inventory.product_inventory.quantity_reserved IS
+    'Quantity held for pending WhatsApp orders not yet fulfilled — prevents overselling during checkout.';
+
+-- ============================================================
+-- Schema: product
+-- Table:  product.product_catalog  (Presentation / Channel layer)
+-- ============================================================
+
+CREATE TABLE product.sales_channel (
+    channel_id     SMALLINT PRIMARY KEY,
+    channel_name   VARCHAR(50) NOT NULL UNIQUE  -- 'whatsapp_bot','pharmacy_pos','web'
+);
+
+CREATE TABLE product.product_catalog (
+    -- ---------- Primary Identity ----------
+    catalog_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    product_id          BIGINT       NOT NULL REFERENCES product.product(product_id),
+    channel_id          SMALLINT     NOT NULL REFERENCES product.sales_channel(channel_id),
+
+    -- ---------- Presentation ----------
+    display_name_ar     VARCHAR(255),           -- ممكن يختلف عن الاسم الرسمي (اسم تسويقي)
+    short_description_ar VARCHAR(500),
+    image_url            VARCHAR(500),
+
+    -- ---------- Pricing ----------
+    list_price           NUMERIC(12,2) NOT NULL CHECK (list_price >= 0),
+    discount_price        NUMERIC(12,2) CHECK (discount_price IS NULL OR discount_price <= list_price),
+    currency              CHAR(3)       NOT NULL DEFAULT 'EGP',
+
+    -- ---------- Availability window ----------
+    valid_from            DATE          NOT NULL DEFAULT CURRENT_DATE,
+    valid_to              DATE,                 -- NULL = لسه ساري
+    is_published           BOOLEAN       NOT NULL DEFAULT FALSE,
+
+    -- ---------- Bot-specific controls ----------
+    max_qty_per_order       INTEGER       CHECK (max_qty_per_order IS NULL OR max_qty_per_order > 0),
+    bot_visible             BOOLEAN       NOT NULL DEFAULT TRUE, -- منفصل عن is_published (ممكن منشور بس مخفي عن البوت تحديدًا)
+
+    -- ---------- Audit / Governance ----------
+    created_at             TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    created_by             VARCHAR(100)  NOT NULL DEFAULT current_user,
+    updated_at             TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    updated_by             VARCHAR(100),
+    row_version            INTEGER       NOT NULL DEFAULT 1,
+    is_deleted              BOOLEAN       NOT NULL DEFAULT FALSE,
+    deleted_at              TIMESTAMPTZ,
+
+    -- ---------- Constraints ----------
+    CONSTRAINT chk_valid_period CHECK (valid_to IS NULL OR valid_to >= valid_from),
+    CONSTRAINT chk_catalog_soft_delete CHECK (
+        (is_deleted = FALSE AND deleted_at IS NULL) OR
+        (is_deleted = TRUE  AND deleted_at IS NOT NULL)
+    )
+);
+
+-- ============================================================
+-- منع تداخل الفترات الزمنية لنفس المنتج/القناة
+-- (نفس المنتج مينفعش يبقى له سعرين ساريين في نفس الوقت لنفس القناة)
+-- ============================================================
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+ALTER TABLE product.product_catalog
+ADD CONSTRAINT excl_no_overlap_price
+EXCLUDE USING gist (
+    product_id WITH =,
+    channel_id WITH =,
+    daterange(valid_from, COALESCE(valid_to, 'infinity'::date), '[]') WITH &&
+) WHERE (is_deleted = FALSE);
+
+-- ============================================================
+-- Indexes
+-- ============================================================
+CREATE INDEX idx_catalog_product_id  ON product.product_catalog(product_id);
+CREATE INDEX idx_catalog_channel_id  ON product.product_catalog(channel_id);
+
+-- أهم index عمليًا: جلب السعر الساري النهارده لقناة معينة
+CREATE INDEX idx_catalog_active_lookup ON product.product_catalog(product_id, channel_id)
+    WHERE is_published = TRUE AND is_deleted = FALSE;
+
+-- ============================================================
+-- Trigger: نفس منطق الـ updated_at/row_version
+-- ============================================================
+CREATE TRIGGER set_updated_at
+BEFORE UPDATE ON product.product_catalog
+FOR EACH ROW
+EXECUTE FUNCTION product.trg_set_updated_at();  -- نفس الفنكشن من product.product
+
+-- ============================================================
+-- Comments
+-- ============================================================
+COMMENT ON TABLE product.product_catalog IS
+    'Channel-specific presentation & pricing layer. One product_id can have multiple rows across channels and time periods.';
+COMMENT ON COLUMN product.product_catalog.bot_visible IS
+    'Independent from is_published — allows a product to be live on POS but hidden from the WhatsApp bot specifically.';
+-- ============================================================
+-- Schema: product
+-- Table:  product.product  (Master/Identity table)
+-- ============================================================
+
+CREATE TABLE product.product (
+    -- ---------- Primary Identity ----------
+    product_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    sku                 VARCHAR(50)  NOT NULL,
+    barcode             VARCHAR(64),                -- EAN/UPC, ممكن يبقى NULL لمنتجات لسه من غير باركود
+
+    -- ---------- Naming (bilingual) ----------
+    product_name_ar     VARCHAR(255) NOT NULL,
+    product_name_en     VARCHAR(255),
+
+    -- ---------- Classification ----------
+    type_id             SMALLINT     NOT NULL REFERENCES product.product_type(type_id),
+    category_id         BIGINT       REFERENCES product.category(category_id),
+    brand_id            BIGINT       REFERENCES product.brand(brand_id),
+
+    -- ---------- Unit / Packaging ----------
+    base_unit           VARCHAR(20)  NOT NULL DEFAULT 'piece',   -- 'piece','box','strip','bottle'
+    units_per_package    INTEGER      NOT NULL DEFAULT 1 CHECK (units_per_package > 0),
+
+    -- ---------- Behavior flags (بيوجّهوا الـ application logic) ----------
+    requires_batch_tracking BOOLEAN  NOT NULL DEFAULT FALSE,     -- هل يتطلب batch/expiry في الـ inventory
+    requires_serial_tracking BOOLEAN NOT NULL DEFAULT FALSE,     -- هل يتطلب serial number (أجهزة)
+    requires_prescription   BOOLEAN  NOT NULL DEFAULT FALSE,     -- gate أساسي للـ WhatsApp bot
+    is_controlled            BOOLEAN NOT NULL DEFAULT FALSE,     -- مواد مخدرة/مقيدة
+
+    -- ---------- Commercial ----------
+    tax_category         VARCHAR(20) NOT NULL DEFAULT 'standard', -- 'exempt','standard','reduced'
+    is_active             BOOLEAN     NOT NULL DEFAULT TRUE,
+    is_sellable_online    BOOLEAN     NOT NULL DEFAULT TRUE,      -- ممكن يبقى منتج موجود بس مش متاح للبيع عبر البوت
+
+    -- ---------- Audit / Governance ----------
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by            VARCHAR(100) NOT NULL DEFAULT current_user,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by            VARCHAR(100),
+    row_version           INTEGER     NOT NULL DEFAULT 1,          -- optimistic concurrency control
+    is_deleted            BOOLEAN     NOT NULL DEFAULT FALSE,      -- soft delete
+    deleted_at            TIMESTAMPTZ,
+
+    -- ---------- Constraints ----------
+    CONSTRAINT uq_product_sku UNIQUE (sku),
+    CONSTRAINT uq_product_barcode UNIQUE (barcode),
+    CONSTRAINT chk_tax_category CHECK (tax_category IN ('exempt','standard','reduced')),
+    CONSTRAINT chk_soft_delete CHECK (
+        (is_deleted = FALSE AND deleted_at IS NULL) OR
+        (is_deleted = TRUE  AND deleted_at IS NOT NULL)
+    )
+);
+
+-- ============================================================
+-- Indexes
+-- ============================================================
+CREATE INDEX idx_product_type_id      ON product.product(type_id);
+CREATE INDEX idx_product_category_id  ON product.product(category_id);
+CREATE INDEX idx_product_brand_id     ON product.product(brand_id);
+CREATE INDEX idx_product_active       ON product.product(is_active) WHERE is_deleted = FALSE;
+
+-- بحث نصي سريع (اسم عربي) للـ WhatsApp bot NLU
+CREATE INDEX idx_product_name_ar_trgm ON product.product
+    USING gin (product_name_ar gin_trgm_ops);   -- محتاج extension pg_trgm
+
+-- ============================================================
+-- Trigger: auto-update updated_at + row_version
+-- ============================================================
+CREATE OR REPLACE FUNCTION product.trg_set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at  := now();
+    NEW.row_version := OLD.row_version + 1;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_updated_at
+BEFORE UPDATE ON product.product
+FOR EACH ROW
+EXECUTE FUNCTION product.trg_set_updated_at();
+
+-- ============================================================
+-- Comments (توثيق داخل الـ DB نفسه)
+-- ============================================================
+COMMENT ON TABLE product.product IS
+    'Master/identity table for all sellable items across drug, paramedical, cosmetic, device and equipment lines.';
+COMMENT ON COLUMN product.product.requires_prescription IS
+    'Gate flag used by the WhatsApp purchasing bot to block/route orders requiring Rx verification.';
+COMMENT ON COLUMN product.product.row_version IS
+    'Optimistic concurrency token — increment on every update via trigger.';
+
