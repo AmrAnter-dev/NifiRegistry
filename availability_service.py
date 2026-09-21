@@ -21,30 +21,51 @@ class Allocation:
 
 
 @dataclass(frozen=True, slots=True)
-class AvailabilityResult:
-    item_code: int
-    requested_quantity: int
-    local_quantity: int
-    network_quantity: int
-    allocations: list[Allocation]
-    status: AvailabilityStatus
+class TransferAllocation:
+    source_branch_id: int
+    quantity: float
+    distance_km: float
+    estimated_hours: int
 
     @property
-    def total_available(self) -> float:
-        return sum(allocation.qty_available for allocation in self.allocations)
-
-    def shortfall(self) -> float:
-        return max(0.0, self.requested_quantity - self.total_available)
+    def time_needed(self) -> str:
+        return f"{self.estimated_hours} hours"
 
 
 @dataclass(frozen=True, slots=True)
-class InventoryAvailabilityResult:
+class AvailabilityResult:
     item_code: int
     requested_quantity: int
-    local_quantity: int
-    network_quantity: int
+    local_quantity: float
+    network_quantity: float
+    allocations: list[TransferAllocation]
     status: AvailabilityStatus
-    allocations: list[Allocation]
+    fulfilled: bool,
+    delivery_time: int
+    
+   @property
+    def total_distance_km(self) -> float:
+        return sum(
+            allocation.distance_km
+            for allocation in self.allocations
+        )
+
+    @property
+    def total_available(self) -> float:
+        return self.local_quantity + sum(
+            allocation.quantity
+            for allocation in self.allocations
+        )
+
+    @property
+    def shortfall(self) -> float:
+        return max(
+            0.0,
+            self.requested_quantity - self.total_available
+        )
+
+
+
 
 class InventoryService:
     def __init__(self, branch_repo: BranchRepository, central_repo: CentralRepository):
@@ -91,15 +112,18 @@ class InventoryService:
             raise ValueError("requested_quantity must be greater than zero.")
 
         # 1. المخزون المحلي
-        local_allocation = await self._branch_repo.get_stock(branch_name,item_code)
+        local_allocation = await self._branch_repo.get_stock(
+            branch_name,
+            item_code
+        )
         local_quantity =min(
-             local_allocation.quantity_available if local_allocation  else 0,
+             local_allocation.quantity_available if local_allocation  else 0.0,
              requested_quantity
         )
         remaining_quantity = requested_quantity - local_quantity
 
         # 2. إذا كان المحلي يغطي بالكامل
-        if local_quantity <= 0:
+        if remaining_quantity <= 0:
             return AvailabilityResult(
                 item_code=item_code,
                 requested_quantity=requested_quantity,
@@ -108,43 +132,53 @@ class InventoryService:
                 allocations=[],
                 status=AvailabilityStatus.LOCAL_AVAILABLE,
                 fulfilles=True,
-                message="المنتج متوفر في المخزون المحلي."
+                message="المنتج متوفر بالكامل في المخزون المحلي.",
             )
+        local_branch_id= await self._central_repo.get_branch_id(branch_name)
+        if local_branch_id is None:
+        raise RepositoryError(
+            f"Branch not found: {branch_name}"
+        )
 
         # 3. إحالة الفحص لباقي فروع الشبكة
-        central_allocations = await self._central_repo.get_stock_all_branches(item_code=item_code)
-        branch_id= await self._central_repo.get_branch_id(branch_name)
-        # استبعاد الفرع المحلي لتجنب تكرار الخصم
-        other_branches_allocations = [
-            alloc for alloc in central_allocations if alloc.branch_id != branch_id
-        ]
-
-        # حساب إجمالي كمية الشبكة الكلية المتوفرة
-        total_network_quantity = local_quantity + sum(
-            max(0, alloc.quantity_available) for alloc in other_branches_allocations
-        )
+        central_allocations = await self._central_repo.get_stock_all_branches(item_code)
 
         # بناء التخصيصات المقسّمة على الفروع
-        allocations_plan = self._build_allocations_plan(
-            local_branch_id=branch_id,
+        allocations_plan = await self._build_allocations_plan(
+            local_branch_id=local_branch_id,
             local_quantity=local_quantity,
-            other_allocations=other_branches_allocations,
-            requested_quantity=requested_quantity,
+            other_allocations=central_allocations,
+            requested_quantity=remaining_quantity,
         )
 
+         # حساب إجمالي كمية الشبكة الكلية المتوفرة
+       fulfilled_quantity = (
+           local_quantity + sum(
+            max(0, alloc.quantity) for alloc in allocations_plan
+        )
+                            )
+        total_distance_km = sum(
+        allocation.distance_km
+        for allocation in allocations_plan
+        )
+        
+        delivery_time = 48 if total_distance_km > 20.0 else 0
         status = self._determine_status(
             requested_quantity=requested_quantity,
             local_quantity=local_quantity,
-            network_quantity=total_network_quantity,
+            network_quantity=fulfilled_quantity,
         )
+        
 
         return AvailabilityResult(
             item_code=item_code,
             requested_quantity=requested_quantity,
             local_quantity=local_quantity,
-            network_quantity=total_network_quantity,
+            network_quantity=fulfilled_quantity,
             allocations=allocations_plan,
             status=status,
+            fulfilled=(fulfilled_quantity >= requested_quantity,
+            delivery_time= delivery_time,
         )
 
     @staticmethod
@@ -166,46 +200,65 @@ class InventoryService:
 
         return AvailabilityStatus.UNAVAILABLE
 
-    @staticmethod
-    def _build_allocations_plan(
+    
+    async def _build_allocations_plan(
+        self,
         *,
         local_branch_id: int,
-        local_quantity: int,
         other_allocations: List[Allocation],
-        requested_quantity: int,
+        remaining_quantity: int,
     ) -> List[Allocation]:
 
-        remaining = requested_quantity
-        allocations: List[Allocation] = []
+        if  remaining_quantity <= 0:
+            return []
+        # Exclude local branch
+        other_allocations = [
+            allocation
+            for allocation in other_allocations
+            if allocation.branch_id != local_branch_id
+        ]
 
-        # 1. التخصيص من الفرع المحلي أولاً
-        if local_quantity > 0:
-            local_used = min(local_quantity, remaining)
-            allocations.append(
-                Allocation(
-                    branch_id=local_branch_id,
-                    qty_available=local_used,
-                )
+        if not other_allocations:
+            return []
+
+            
+        branches_ids = [
+            alloc.branch_id for alloc in other_allocations 
+        ]
+        
+        
+        if branches_ids:
+            # Get branches ordered by distance
+            branches= await self.branch_service.get_nearest_branches(
+                customer_branch_id = local_branch_id,
+                branch_ids = branch_ids
             )
-            remaining -= local_used
-
-        if remaining <= 0:
-            return allocations
-
+        allocation_by_branch={
+            allocation.branch_id:allocation
+            for allocation in other_allocations
+        }
+        
+        allocations: list[TransferAllocation] = []
         # 2. التخصيص من باقي الفروع بالتوالي
-        for allocation in other_allocations:
+        for branch in branches:
             if remaining <= 0:
                 break
+            allocation=allocation_by_branch.get(branch.branch-id)
+            
+            if not allocation:
+                continue
 
-            available = max(0, allocation.qty_available)
+            available = max(0,
+                            allocation.quantity_available)
             if available <= 0:
                 continue
 
             allocated = min(available, remaining)
             allocations.append(
-                Allocation(
-                    branch_name=allocation.branch_name,
-                    qty_available=allocated,
+                TransferAllocation(
+                    source_id=allocation.branch_id,
+                    quantity=allocated,
+                    distance_km= branch.distance_km
                 )
             )
             remaining -= allocated
@@ -317,7 +370,7 @@ class CentralRepository(BaseCentralInventoryRepository):
         sql=" select branch_id from store.branch where branch_name = $1"
         try: 
             async with self._db_pool.acquire() as conn: 
-                row = await conn.fetch(sql, branch_name) 
+                row = await conn.fetchrow(sql, branch_name) 
                 if row: 
                     # تحويل كل صف إلى Allocation DTO وإرجاع القائمة بكل الفروع المتاحة
                     dicted_row = dict(row)
@@ -326,7 +379,7 @@ class CentralRepository(BaseCentralInventoryRepository):
                 return None
         except Exception as e: 
             logger.error( 
-                "Central get_stock failed for branch_name='%s' : %s", 
+                "Get branch_id failed for branch_name='%s': %s", 
                 branch_name,e, exc_info=True
             ) 
-            raise RepositoryError(f"Database error while fetching central stock for branch_name {branch_name}") from e   
+            raise RepositoryError(f"Database error while fetching branch_id for branch_name '{branch_name}'") from e   
