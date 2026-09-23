@@ -119,7 +119,8 @@ class RecommendationService:
 
     async def recommend(
         self,
-        item_code: int,
+        product_name: str,
+        branch_name: str,
         limit: int = 5,
     ) -> RecommendationResponse:
 
@@ -129,8 +130,8 @@ class RecommendationService:
             # 1. Find Original Product
             # ------------------------------------------------
 
-            product = await self.product_service.get_by_id(
-                item_code=item_code
+            product = await self.product_service.resolve(
+               product_name,branch_name
             )
 
             if not product:
@@ -155,7 +156,7 @@ class RecommendationService:
             # ------------------------------------------------
 
             drug_signature = product.get(
-                "drug_signature"
+                "drug_signature",""
             )
 
             # ------------------------------------------------
@@ -269,9 +270,9 @@ class RecommendationService:
             return []
 
         product_ids = [
-            product["id"]
+            product["product_id"]
             for product in products
-            if product.get("id") is not None
+            if product.get("product_id") is not None
         ]
 
         if not product_ids:
