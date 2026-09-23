@@ -1,3 +1,4 @@
+```python
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -9,23 +10,24 @@ from pydantic import BaseModel, Field
 
 class RecommendationEngineTool(BaseModel):
     """
-    Find available medicine equivalents or alternatives.
+    Find an available equivalent or alternative product.
 
     Strategy:
-    1. Find the requested product.
-    2. Find products with the same active ingredients.
-    3. Exclude products that are out of stock.
-    4. If no available equivalent exists, search semantic
-       alternatives in the vector database.
-    5. Exclude unavailable alternatives as well.
+    1. Find the requested product by item_code.
+    2. Use the product's drug_signature:
+       active_ingredients | strength | route
+    3. Find products with the exact same signature.
+    4. Keep only products with LOCAL stock > 0.
+    5. If no locally available equivalent exists,
+       search semantic alternatives.
+    6. Keep only alternatives with LOCAL stock > 0.
     """
 
-    product_name: str = Field(
+    item_code: int = Field(
         ...,
-        min_length=1,
         description=(
-            "Medicine or product name for which the user "
-            "wants an equivalent or alternative."
+            "Item code of the medicine/product for which "
+            "an equivalent or alternative is requested."
         ),
     )
 
@@ -33,7 +35,7 @@ class RecommendationEngineTool(BaseModel):
         default=5,
         ge=1,
         le=10,
-        description="Maximum number of available recommendations.",
+        description="Maximum number of recommendations.",
     )
 
 
@@ -44,6 +46,7 @@ class RecommendationEngineTool(BaseModel):
 class ProductResponse(BaseModel):
 
     id: Any
+
     name: str
 
     active_ingredients: list[str] = Field(
@@ -106,11 +109,9 @@ class RecommendationService:
         inventory_service,
         semantic_service,
     ):
-
         self.product_service = product_service
         self.inventory_service = inventory_service
         self.semantic_service = semantic_service
-
 
     # ========================================================
     # Public API
@@ -118,7 +119,7 @@ class RecommendationService:
 
     async def recommend(
         self,
-        product_name: str,
+        item_code: int,
         limit: int = 5,
     ) -> RecommendationResponse:
 
@@ -128,136 +129,137 @@ class RecommendationService:
             # 1. Find Original Product
             # ------------------------------------------------
 
-            product = await self.product_service.get_by_name(
-                product_name=product_name
+            product = await self.product_service.get_by_id(
+                item_code=item_code
             )
 
             if not product:
 
-                return await self._search_alternatives(
-                    query=product_name,
-                    product=None,
-                    limit=limit,
+                return RecommendationResponse(
+                    status="not_found",
+                    recommendation_type=None,
+                    original_product=None,
+                    recommendations=[],
+                    message=(
+                        f"Product with item_code={item_code} "
+                        "was not found."
+                    ),
                 )
-
 
             original_product = (
                 self._build_original_product(product)
             )
 
-
             # ------------------------------------------------
-            # 2. Extract Active Ingredients
+            # 2. Get Drug Signature
             # ------------------------------------------------
 
-            active_ingredients = (
-                self._get_active_ingredients(product)
+            drug_signature = product.get(
+                "drug_signature"
             )
 
-
             # ------------------------------------------------
-            # No Active Ingredient
+            # 3. No Signature
             # ------------------------------------------------
 
-            if not active_ingredients:
+            if not drug_signature:
 
                 return await self._search_alternatives(
-                    query=self._build_semantic_query(product),
                     product=original_product,
+                    query=self._build_semantic_query(product),
                     limit=limit,
                 )
 
-
             # ------------------------------------------------
-            # 3. Find Products With Same Ingredients
+            # 4. Find Exact Equivalents
+            # ------------------------------------------------
+            #
+            # drug_signature means:
+            #
+            # active_ingredients | strength | route
+            #
+            # Therefore this is an exact equivalence search.
             # ------------------------------------------------
 
             equivalents = (
                 await self.product_service
-                .get_by_active_ingredients(
-                    active_ingredients=active_ingredients,
-                    exclude_product_id=product.get("id"),
+                .get_by_drug_signature(
+                    drug_signature=drug_signature,
+                    exclude_item_code=item_code,
                 )
             )
 
-
             # ------------------------------------------------
-            # 4. Check Availability
+            # 5. Keep ONLY locally available equivalents
             # ------------------------------------------------
 
             available_equivalents = (
-                await self._filter_available_products(
+                await self._filter_local_stock(
                     products=equivalents,
                     limit=limit,
                 )
             )
 
-
             # ------------------------------------------------
-            # 5. Available Equivalents Found
+            # 6. Equivalent Found
             # ------------------------------------------------
 
             if available_equivalents:
 
                 return RecommendationResponse(
                     status="success",
-
                     recommendation_type="equivalent",
-
                     original_product=original_product,
-
                     recommendations=[
                         self._build_equivalent_response(
                             item
                         )
                         for item in available_equivalents
                     ],
-
                     message=(
-                        "Available equivalent medicines "
-                        "with the same active ingredients "
-                        "were found."
+                        "Available equivalent products "
+                        "with the same drug signature were found "
+                        "in the current branch."
                     ),
                 )
 
-
             # ------------------------------------------------
-            # 6. No Available Equivalents
+            # 7. No LOCAL Equivalent
             # ------------------------------------------------
+            #
             # Important:
-            # Products may exist in the database but have
-            # zero stock. Therefore we fallback to semantic
-            # alternatives.
+            # We do NOT care here if an equivalent exists
+            # somewhere else in the network.
+            #
+            # The customer needs a product available NOW
+            # in the current branch.
+            #
+            # Therefore we fallback to semantic alternatives.
+            # ------------------------------------------------
 
             return await self._search_alternatives(
-                query=self._build_semantic_query(product),
                 product=original_product,
+                query=self._build_semantic_query(product),
                 limit=limit,
             )
 
-
-        except Exception as exc:
+        except Exception:
 
             return RecommendationResponse(
                 status="error",
-
                 recommendation_type=None,
-
                 original_product=None,
-
                 recommendations=[],
-
                 message=(
                     "Unable to complete recommendation search."
                 ),
             )
 
-
     # ========================================================
-    # Availability Filtering
+    # Local Stock Filtering
     # ========================================================
 
-    async def _filter_available_products(
+    async def _filter_local_stock(
         self,
         products: list[dict],
         limit: int,
@@ -266,79 +268,71 @@ class RecommendationService:
         if not products:
             return []
 
-
         product_ids = [
             product["id"]
             for product in products
             if product.get("id") is not None
         ]
 
-
         if not product_ids:
             return []
 
-
         # ----------------------------------------------------
-        # Get stock in one call
+        # Get LOCAL stock in one call
         # ----------------------------------------------------
         #
-        # IMPORTANT:
-        # Do NOT call inventory_service once per product.
+        # This MUST NOT return network quantity.
         #
-        # Bad:
+        # We only want:
         #
-        #   for product:
-        #       await inventory_service.get_stock(product["id"])
+        # product_id -> local_quantity
         #
-        # This creates N database calls.
+        # Example:
         #
-        # Instead:
-        #
-        #   get_available_stock(product_ids)
-        #
+        # {
+        #     101: 0,
+        #     102: 15,
+        #     103: 7,
+        # }
+        # ----------------------------------------------------
 
-        stock_map = (
+        local_stock_map = (
             await self.inventory_service
-            .get_available_stock(
+            .get_local_stock(
                 product_ids=product_ids
             )
         )
 
-
         available = []
-
 
         for product in products:
 
             product_id = product.get("id")
 
-            quantity = stock_map.get(
+            local_quantity = local_stock_map.get(
                 product_id,
                 0,
             )
 
-
             # ------------------------------------------------
-            # Only products with stock
+            # LOCAL STOCK ONLY
             # ------------------------------------------------
 
-            if quantity <= 0:
+            if local_quantity <= 0:
                 continue
-
 
             item = dict(product)
 
-            item["available_quantity"] = quantity
+            item["available_quantity"] = (
+                local_quantity
+            )
 
             available.append(item)
-
 
             if len(available) >= limit:
                 break
 
-
         return available
-
 
     # ========================================================
     # Semantic Alternatives
@@ -346,13 +340,10 @@ class RecommendationService:
 
     async def _search_alternatives(
         self,
+        product: OriginalProductResponse,
         query: str,
-        product: Optional[
-            OriginalProductResponse
-        ],
         limit: int,
     ) -> RecommendationResponse:
-
 
         # ----------------------------------------------------
         # Search Vector DB
@@ -362,30 +353,24 @@ class RecommendationService:
             await self.semantic_service.search(
                 query=query,
 
-                # Ask for more than limit because some
-                # results may be unavailable.
+                # Ask for more candidates because
+                # some may have no LOCAL stock.
                 limit=limit * 3,
             )
         )
-
 
         if not semantic_results:
 
             return RecommendationResponse(
                 status="not_found",
-
                 recommendation_type=None,
-
                 original_product=product,
-
                 recommendations=[],
-
                 message=(
-                    "No equivalent or alternative "
-                    "products were found."
+                    "No available equivalent or "
+                    "alternative products were found."
                 ),
             )
-
 
         # ----------------------------------------------------
         # Extract Products
@@ -408,40 +393,34 @@ class RecommendationService:
 
             products.append(item)
 
-
         # ----------------------------------------------------
-        # Filter Availability
+        # LOCAL STOCK ONLY
         # ----------------------------------------------------
 
         available_products = (
-            await self._filter_available_products(
+            await self._filter_local_stock(
                 products=products,
                 limit=limit,
             )
         )
 
-
         # ----------------------------------------------------
-        # No Available Alternatives
+        # No Locally Available Alternatives
         # ----------------------------------------------------
 
         if not available_products:
 
             return RecommendationResponse(
                 status="not_found",
-
                 recommendation_type=None,
-
                 original_product=product,
-
                 recommendations=[],
-
                 message=(
-                    "No available equivalent or "
-                    "alternative products were found."
+                    "No equivalent or alternative "
+                    "products are currently available "
+                    "in the current branch."
                 ),
             )
-
 
         # ----------------------------------------------------
         # Return Alternatives
@@ -449,26 +428,21 @@ class RecommendationService:
 
         return RecommendationResponse(
             status="success",
-
             recommendation_type="alternative",
-
             original_product=product,
-
             recommendations=[
                 self._build_alternative_response(
                     item
                 )
                 for item in available_products
             ],
-
             message=(
-                "No available equivalent with the same "
-                "active ingredients was found. "
-                "Available therapeutic alternatives "
-                "were returned."
+                "No locally available equivalent with "
+                "the same drug signature was found. "
+                "Available alternatives in the current "
+                "branch were returned."
             ),
         )
-
 
     # ========================================================
     # Response Builders
@@ -487,7 +461,6 @@ class RecommendationService:
             ),
         )
 
-
     def _build_equivalent_response(
         self,
         product: dict,
@@ -495,27 +468,19 @@ class RecommendationService:
 
         return ProductResponse(
             id=product.get("id"),
-
-            name=product.get(
-                "name",
-                "",
-            ),
-
+            name=product.get("name", ""),
             active_ingredients=(
                 self._get_active_ingredients(product)
             ),
-
-            available_quantity=product.get(
-                "available_quantity"
+            available_quantity=(
+                product.get("available_quantity")
             ),
-
             reason=(
-                "Same active ingredients as the "
-                "requested product and currently "
-                "available in stock."
+                "Same drug signature "
+                "(active ingredients, strength, and route) "
+                "and currently available in the current branch."
             ),
         )
-
 
     def _build_alternative_response(
         self,
@@ -524,32 +489,22 @@ class RecommendationService:
 
         return ProductResponse(
             id=product.get("id"),
-
-            name=product.get(
-                "name",
-                "",
-            ),
-
+            name=product.get("name", ""),
             active_ingredients=(
                 self._get_active_ingredients(product)
             ),
-
-            available_quantity=product.get(
-                "available_quantity"
+            available_quantity=(
+                product.get("available_quantity")
             ),
-
-            similarity_score=product.get(
-                "_semantic_score"
+            similarity_score=(
+                product.get("_semantic_score")
             ),
-
             reason=(
-                "Therapeutically or semantically "
-                "similar and currently available. "
-                "It may not contain the same "
-                "active ingredients."
+                "Semantically similar and currently "
+                "available in the current branch. "
+                "It may not have the same drug signature."
             ),
         )
-
 
     # ========================================================
     # Helpers
@@ -570,7 +525,6 @@ class RecommendationService:
                 "active_ingredient"
             )
 
-
         if isinstance(
             ingredients,
             list,
@@ -581,7 +535,6 @@ class RecommendationService:
                 for item in ingredients
                 if str(item).strip()
             ]
-
 
         if isinstance(
             ingredients,
@@ -594,9 +547,7 @@ class RecommendationService:
                 if item.strip()
             ]
 
-
         return []
-
 
     def _build_semantic_query(
         self,
@@ -625,3 +576,4 @@ class RecommendationService:
             f"{', '.join(ingredients)}\n"
             f"Indications: {indications}"
         )
+```
