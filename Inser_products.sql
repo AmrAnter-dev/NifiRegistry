@@ -1,23 +1,12 @@
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
-(44410, 'خدمة اختبار حساسيه + تركيب محلول ( ع ت القاهره )', 40.00, 120.00, 'NURSING', 'CAIRO NURS'),
-(44402, 'خدمه اعطاء حقنه وريد ( ع ت القاهره )', 100.00, 100.00, 'NURSING', 'CAIRO NURS'),
-(44408, 'خدمه اعطاء حقنه وريد + اختبار حساسيه ( ع ت القاهره )', 120.00, 120.00, 'NURSING', 'CAIRO NURS'),
-(44405, 'خدمه اعطاء حقنه عضل ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44401, 'خدمه تركيب محلول ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44406, 'خدمه تركيب كانيولا ( ع ت القاهره )', 120.00, 120.00, 'NURSING', 'CAIRO NURS'),
-(44418, 'خدمه تغيير على الجروح سطحيه ( ع ت القاهره )', 100.00, 100.00, 'NURSING', 'CAIRO NURS'),
-(44411, 'خدمه تغيير على الجروح عميقه ( ع ت القاهره )', 200.00, 200.00, 'NURSING', 'CAIRO NURS'),
-(44404, 'خدمه حقنه عضل + اختبار حساسيه ( ع ت القاهره )', 120.00, 120.00, 'NURSING', 'CAIRO NURS'),
-(44409, 'خدمه جلسه استنشاق + جهاز نيبوليزر ( ع ت القاهره )', 120.00, 120.00, 'NURSING', 'CAIRO NURS'),
-(44413, 'خدمه قياس ضغط منزلي ( ع ت القاهره )', 60.00, 60.00, 'NURSING', 'CAIRO NURS'),
-(44416, 'خدمه قياس سكر منزلي ( ع ت القاهره )', 65.00, 65.00, 'NURSING', 'CAIRO NURS'),
-(44412, 'خدمه فك كانيولا او محلول ( ع ت القاهره )', 50.00, 50.00, 'NURSING', 'CAIRO NURS'),
-(44414, 'خدمة اختبار حساسيه ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44403, 'OR خدمة استنشاق بدون جهاز استنشاق ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44415, 'خدمة إعطاء حقنه تحت الجلد ( ع ت القاهره )', 60.00, 60.00, 'NURSING', 'CAIRO NURS'),
-(27357, 'دليل مطاعم القاهره', 13.00, 13.00, 'Other Book', 'PARAMEDICA'),
-(94503, 'كروت القاهره 1000 كارت', 0.21, 210.00, 'Case Bag C', 'TOXIC');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+create table if not exists sales.new_arrival(
+code int primary key,
+name_ar text,
+price_1 decimal(10,2),
+price_2 decimal(10,2),
+category varchar(50),
+supplier varchar(100)
+);
+INSERT INTO sales.new_arrival (code, name_ar, price_1, price_2, category, supplier) VALUES
 (37000, 'القاهره NRS', 0.01, 0.01, 'NURSING', 'NA'),
 (44417, 'خدمه اوكسيمتر منزلي ( ع ت القاهره )', 60.00, 60.00, 'NURSING', 'CAIRO NURS'),
 (44410, 'خدمه اختبار حساسيه + تركيب محلول ( ع ت القاهره )', 40.00, 120.00, 'NURSING', 'CAIRO NURS'),
@@ -34,11 +23,10 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (44416, 'خدمه قياس سكر منزلي ( ع ت القاهره )', 65.00, 65.00, 'NURSING', 'CAIRO NURS'),
 (44412, 'خدمه فك كانيولا او محلول ( ع ت القاهره )', 50.00, 50.00, 'NURSING', 'CAIRO NURS'),
 (44414, 'خدمة اختبار حساسيه ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44403, 'OR خدمة استنشاق بدون جهاز استنشاق ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
-(44415, 'خدمة إعطاء حقنه تحت الجلد ( ع ت القاهره )', 60.00, 60.00, 'NURSING', 'CAIRO NURS');
+(44403, 'خدمة استنشاق بدون جهاز استنشاق ( ع ت القاهره )', 75.00, 75.00, 'NURSING', 'CAIRO NURS'),
+(44415, 'خدمة إعطاء حقنه تحت الجلد ( ع ت القاهره )', 60.00, 60.00, 'NURSING', 'CAIRO NURS'),
 
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
--- من الصورة الثالثة (VICHY مجموعة 1)
+
 (24587, 'VICHY DERCOS DENSI SOLUTIONS BALM 200ML', 880.00, 880.00, 'COSMO-MI', 'FRANCE'),
 (1707, 'VICHY DERCOS DENSI SOLUTIONS HAIR MASS SPRAY 100M', 2380.00, 2380.00, 'COSMO-MI', 'FRANCE'),
 (96705, 'VICHY DERCOS ENERGY SHAMPOO HAIR LOSS 200ML #C#', 880.00, 880.00, 'COSMO-MI', 'FRANCE'),
@@ -88,8 +76,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (97066, 'VICHY DERCOS ANTI DANDRUFF SHAMP DRY HAIR 200ML', 800.00, 800.00, 'COSMO-MI', 'FRANCE'),
 (97067, 'VICHY DERCOS ANTI DANDRUFF SHAMP OILY HAIR200ML', 800.00, 800.00, 'COSMO-MI', 'FRANCE'),
 (146506, 'VICHY DERCOS DENSI KIT(SHA250M+SPRAY 100M+BALM200', 3105.00, 3105.00, 'COSMO-MI', 'FRANCE'),
-(1704, 'VICHY DERCOS DENSI SOLU THICK SHAM 250ML', 880.00, 880.00, 'COSMO-MI', 'COSMETICS');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(1704, 'VICHY DERCOS DENSI SOLU THICK SHAM 250ML', 880.00, 880.00, 'COSMO-MI', 'COSMETICS'),
+
 (85112, 'LA ROCHE LIPIKAR BAUME(AP+M) BALM200ML', 1110.90, 1110.90, 'COSMO-MI', 'FRANCE'),
 (89741, 'LA ROCHE LIPIKAR BAUME(AP+M) BALM75ML', 640.00, 640.00, 'COSMO-MI', 'FRANCE'),
 (39447, 'LA ROCHE LIPIKAR BAUME(AP+M)BODYBALM400ML', 1270.00, 1270.00, 'COSMO-MI', 'FRANCE'),
@@ -107,8 +95,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (4633, 'LA ROCHE POSAY THERMAL WATER 150ML', 640.00, 640.00, 'COSMO-MI', 'FRANCE'),
 (106921, 'LA ROCHE POSAY TOLERIANE SENSITIVE CREME 40ML', 970.00, 970.00, 'COSMO-MI', 'FRANCE'),
 (119234, 'LA ROCHE RETINOL REDERMIC EYES 15 ML', 970.00, 970.00, 'COSMO-MI', 'FRANCE'),
-(144401, 'LA ROCHE-POSAY MELA B3 EYES 15 ML', 1399.00, 1399.00, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(144401, 'LA ROCHE-POSAY MELA B3 EYES 15 ML', 1399.00, 1399.00, 'COSMO-MI', 'FRANCE'),
+
 (89862, 'LA ROCHE CICAPLAST B5+ BALM SOOTH40ML', 900.00, 900.00, 'COSMO-MI', 'FRANCE'),
 (134225, 'LA ROCHE CICAPLAST B5+ SPF50 BALM40ML', 990.00, 990.00, 'COSMO-MI', 'FRANCE'),
 (118179, 'LA ROCHE CICAPLAST LEVRES BALM 7.5 ML', 460.00, 460.00, 'COSMO-MI', 'FRANCE'),
@@ -126,8 +114,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (146505, 'LA ROCHE EFFACLAR SUPRA CREAM40ML OILYSKIN', 800.00, 800.00, 'COSMO-MI', 'FRANCE'),
 (85155, 'LA ROCHE EFFACLAR ULTRA MICELLAR WATER OILY200M', 770.00, 770.00, 'COSMO-MI', 'FRANCE'),
 (95002, 'LA ROCHE FOAM GEL (OILY) 400ML غسول للبشرة الدهنية', 1140.00, 1140.00, 'COSMO-MI', 'FRANCE'),
-(124623, 'LA ROCHE FOAM GEL (OILY) (كيس) 400ML غسول بشرة دهني', 999.99, 999.99, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(124623, 'LA ROCHE FOAM GEL (OILY) (كيس) 400ML غسول بشرة دهني', 999.99, 999.99, 'COSMO-MI', 'FRANCE'),
+
 (32203, 'LA ROCHE ANTHELIOS SHAKA TINTED FLUID50ML SPF50', 1070.00, 1070.00, 'COSMO-MI', 'FRANCE'),
 (104643, 'LA ROCHE ANTHE MIST SPF50 (DRY SPRAY) ANTI SHINE7', 820.00, 820.00, 'COSMO-MI', 'FRANCE'),
 (146502, 'LA ROCHE ANTHE TEINT(UV AIR)SERUM50MLSUN(SPF50+)', 999.00, 999.00, 'COSMO-MI', 'FRANCE'),
@@ -145,8 +133,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (97200, 'LA ROCHE ANTHELIOS SPRAY200M(BRUME)SPF50(FACE AN', 1250.00, 1250.00, 'COSMO-MI', 'FRANCE'),
 (102761, 'LA ROCHE ANTHELIOS TINTED GEL CREAM 50M SPF50', 1070.00, 1070.00, 'COSMO-MI', 'FRANCE'),
 (102689, 'LA ROCHE ANTHELIOS+6M BABYLOTIONSPF50 50M', 1200.00, 1200.00, 'COSMO-MI', 'FRANCE'),
-(27251, 'LA ROCHE CICAPLAST B5+ BALM SOOTH100ML', 1300.00, 1300.00, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(27251, 'LA ROCHE CICAPLAST B5+ BALM SOOTH100ML', 1300.00, 1300.00, 'COSMO-MI', 'FRANCE'),
+
 (137630, 'BIODERMA #ع# PHOTODERM LAIT ULTRA LOTION100M SPF50', 1199.00, 1199.00, 'COSMO-MI', 'FRANCE'),
 (21849, 'BIODERMA #ع# SENSIBIO GEL MOUSSANT200M(PUMP)FACE&EYES', 799.00, 799.00, 'COSMO-MI', 'COSMETICS'),
 (97543, 'BIODERMA #ع#ATODERM HAND CREAM 50ML(TUBE)', 499.00, 499.00, 'COSMO-MI', 'FRANCE'),
@@ -164,8 +152,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (142283, 'BIODERMA #ع#ATODERM CREAM ULTRA(TUPE)200ML العبوة', 749.00, 749.00, 'COSMO-MI', 'FRANCE'),
 (24161, 'BIODERMA #ع#ATODERM DOUCHE GEL GENTLE200ML العبوة', 649.00, 649.00, 'COSMO-MI', 'FRANCE'),
 (141048, 'BIODERMA #ع#ATODERM INTENS CLEANS BAR150G', 499.00, 499.00, 'COSMO-MI', 'FRANCE'),
-(106864, 'BIODERMA #ع#ATODERM INTENSIVE BALM 75ML', 599.00, 599.00, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(106864, 'BIODERMA #ع#ATODERM INTENSIVE BALM 75ML', 599.00, 599.00, 'COSMO-MI', 'FRANCE'),
+
 (99769, 'BIODERMA #ع# ATODERM INTENSIVE BALM200ML TUBE العبوة', 999.00, 999.00, 'COSMO-MI', 'FRANCE'),
 (50608, 'BIODERMA #ع# ATODERM INTENSIVE GEL MOUSSANT200M TUBE', 749.00, 749.00, 'COSMO-MI', 'FRANCE'),
 (145991, 'BIODERMA #ع# CICABIO BAUME LAVANT CLEANS200ML عبوة', 949.00, 949.00, 'COSMO-MI', 'FRANCE'),
@@ -183,8 +171,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (137628, 'BIODERMA #ع# PHOTODERM(LIGHT)CRE SPF50+ 40ML SENS', 899.00, 899.00, 'COSMO-MI', 'FRANCE'),
 (21805, 'BIODERMA #ع# PIGMENTBIO C-CONCENTRATE15ML DARK SPOTS', 1299.00, 1299.00, 'COSMO-MI', 'IMPORTED'),
 (41713, 'BIODERMA #ع# PIGMENTBIO DAILY CARE SPF 50+ 40ML', 1299.00, 1299.00, 'COSMO-MI', 'FRANCE'),
-(107355, 'BIODERMA #ع# PIGMENTBIO FOAMING CREAM200M(TUBE) سيرم', 849.00, 849.00, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(107355, 'BIODERMA #ع# PIGMENTBIO FOAMING CREAM200M(TUBE) سيرم', 849.00, 849.00, 'COSMO-MI', 'FRANCE'),
+
 (28670, 'BIODERMA #ع# PIGMENTBIO NIGHT RENEWER 50ML', 1299.00, 1299.00, 'COSMO-MI', 'FRANCE'),
 (29711, 'BIODERMA #ع# PIGMENTBIO SENSTIVE AREAS T.75ML', 849.00, 849.00, 'COSMO-MI', 'FRANCE'),
 (38815, 'BIODERMA #ع# SEBIUM EXFOLIAT GE100M(TUBE)COM&OIL SKN', 649.00, 649.00, 'COSMO-MI', 'FRANCE'),
@@ -202,8 +190,8 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (114628, 'BIODERMA #ع# SENSIBIO DEFENSIVE ACTIVE40M SOOTH CREAM', 849.00, 849.00, 'COSMO-MI', 'FRANCE'),
 (137613, 'BIODERMA #ع# SENSIBIO EYE+ANTI-FATIGUE SENS15ML', 799.00, 799.00, 'COSMO-MI', 'FRANCE'),
 (37360, 'BIODERMA #ع# SENSIBIO FORTE CRM SOOTHING40M SENSTIVE', 899.00, 899.00, 'COSMO-MI', 'FRANCE'),
-(50609, 'BIODERMA #ع# SENSIBIO H2O MIC MAKE REMOV250ML', 749.00, 749.00, 'COSMO-MI', 'FRANCE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+(50609, 'BIODERMA #ع# SENSIBIO H2O MIC MAKE REMOV250ML', 749.00, 749.00, 'COSMO-MI', 'FRANCE'),
+
 (138910, 'AVENE CLEAN(1+50)GEL TUBE200M+COMED30M', 1365.00, 1365.00, 'COSMO-MI', 'AVENE'),
 (135473, 'AVENE CLEANANCE GEL (1+50%) OILY SKIN TUBE200ML', 1095.00, 1095.00, 'COSMO-MI', 'AVENE'),
 (102212, 'AVENE CLEANANCE SPF50 OILY SKIN 50ML #C#', 1019.00, 1019.00, 'COSMO-MI', 'AVENE'),
@@ -221,16 +209,10 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (94899, 'AVENE COLD CREAM HAND DRY 50ML', 619.00, 619.00, 'COSMO-MI', 'AVENE'),
 (136773, 'AVENE COLD CREAM LIP BALM STICK 4G', 409.00, 409.00, 'COSMO-MI', 'AVENE'),
 (94083, 'AVENE CREAM SPF50 HYDRA DRY SENS 50ML', 1025.00, 1025.00, 'COSMO-MI', 'AVENE'),
-(106919, 'AVENE ENTLE EXFOLIATING GEL SENS 75 ML #C#', 899.00, 899.00, 'COSMO-MI', 'AVENE');
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
-(143675, 'AVENE CLEANANCE GEL OILY SKIN400ML بالبمب', 1199.00, 1199.00, 'COSMO-MI', 'AVENE'),
-(102609, 'AVENE CLEANANCE HYDRA CREAM SKIN 40ML', 719.00, 719.00, 'COSMO-MI', 'AVENE'),
-(97987, 'AVENE CLEANANCE MICE WATE 400 ML تركواز', 779.00, 779.00, 'COSMO-MI', 'AVENE'),
-(72382, 'AVENE COLD CREAM 100ML V-DRY&SENSTV(FACE&BODY)', 719.00, 719.00, 'COSMO-MI', 'AVENE'),
-(94899, 'AVENE COLD CREAM HAND DRY 50ML', 619.00, 619.00, 'COSMO-MI', 'AVENE'),
-(136773, 'AVENE COLD CREAM LIP BALM STICK 4G', 409.00, 409.00, 'COSMO-MI', 'AVENE'),
-(94083, 'AVENE CREAM SPF50 HYDRA DRY SENS 50ML', 1025.00, 1025.00, 'COSMO-MI', 'AVENE'),
 (106919, 'AVENE ENTLE EXFOLIATING GEL SENS 75 ML #C#', 899.00, 899.00, 'COSMO-MI', 'AVENE'),
+
+
+
 (106733, 'AVENE FLUIDE SPF50 ULTRA LIGHT 50ML #C#', 1025.00, 1025.00, 'COSMO-MI', 'AVENE'),
 (143035, 'AVENE FLUIDE SPF50(1+1)FREE50ML ULTRA LIGHT', 1025.00, 1025.00, 'COSMO-MI', 'AVENE'),
 (145157, 'AVENE HYALURON ACTIV(B3)EYE CARE15ML', 699.00, 699.00, 'COSMO-MI', 'AVENE'),
