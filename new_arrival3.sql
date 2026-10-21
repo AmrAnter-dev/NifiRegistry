@@ -255,7 +255,7 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (73050, 'GARNIER#ع# NATURALS COLOR (6.34) بني شوكولاتة', 165.00, 165.00, 'Hair Dyes0', 'GARNIER'),
 (93257, 'GARNIER#ع# NATURALS COLOR (6.7) بني شوكولاتة نقي', 165.00, 165.00, 'Hair Dyes0', 'GARNIER'),
 (74729, 'GARNIER#ع# NATURALS COLOR (7.1) اشقر رمادي', 165.00, 165.00, 'Hair Dyes0', 'GARNIER'),
-
+-------------------------------------------------------------------------------------------------------------------
 (31105, 'ATRAKTA (AMP + 50SHAMPOO REFORCE ) عرض', 517.50, 517.50, 'COSMO-MI', 'ماكرو انترناشيونال جروب'),
 (30300, 'ATRAKTA ( SHAMPOO + MASK ) DANDR -OFF#B# عرض', 280.00, 280.00, 'COSMO-MI', 'ماكرو انترناشيونال جروب'),
 (26492, 'ATRAKTA (HAIR SHAMPOO عناية اضافية) #B#', 240.00, 240.00, 'COSMO-MI', 'ماكرو انترناشيونال جروب'),
