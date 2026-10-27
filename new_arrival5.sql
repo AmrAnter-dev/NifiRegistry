@@ -149,7 +149,7 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
   
 (136465, 'SOFILIFE DAILY VIT ZINC MAX 25 MG 60CAPSULE', 870.00, 870.00, 'ORAL', 'LOCAL'),
 (134788, 'SOFILIFE SPARKLE PLUS COLLAGEN BEAUTY 30CAPSULE', 95.00, 285.00, 'ORAL', 'LOCAL');
-
+------------------------------------------------------------------------------------------------------------------
 (123929, 'INFINITY POVIDONE-IODINE 120ML ANTISEPTIC SOLUTION', 60.00, 60.00, 'TOPICAL', 'LOCAL'),
 (39815, 'INFINITY TOP HAIR COND REVIVING REPAIR250ML عرض ١', 190.00, 190.00, 'COSMO-MI', 'انفينتي فارما'),
 (35287, 'INFINITY TREATO CREAM HAIR SCALP 120M #C#', 200.00, 200.00, 'COSMO-MI', 'انفينتي فارما'),
