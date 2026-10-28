@@ -1798,7 +1798,7 @@ INSERT INTO sales.new_arrival (code, name_en, name_ar, price_1, price_2, categor
 (140885, 'SOFILIFE GUMMY VIT KIDS ZINC 30GUMMIES الروالة برطمان', 'سوفيلايف جامي فيت زنك للأطفال قطع جيلي 30 قطعة', 410.00, 410.00, 'ORAL', 'LOCAL'),
 (136465, 'SOFILIFE DAILY VIT ZINC MAX 25 MG 60CAPSULE', 'سوفيلايف دايلي فيت زنك ماكس 25 مجم كبسولات 60 كبسولة', 870.00, 870.00, 'ORAL', 'LOCAL'),
 (134788, 'SOFILIFE SPARKLE PLUS COLLAGEN BEAUTY 30CAPSULE', 'سوفيلايف سباركل بلس كولاجين بيوتي كبسولات 30 كبسولة', 95.00, 285.00, 'ORAL', 'LOCAL'),
-INSERT INTO sales.new_arrival (code, name_en, name_ar, price_1, price_2, category, supplier) VALUES
+
 (123929, 'INFINITY POVIDONE-IODINE ANTISEPTIC SOLUTION  120ML', 'إنفينتي بوفيدون أودين مطهر وجارح محلول 120 مل', 60.00, 60.00, 'TOPICAL', 'LOCAL'),
 (39815, 'INFINITY TOP HAIR COND REVIVING REPAIR 250ML عرض ١', 'إنفينتي توب هير بلسم مجدد ومعالج للشعر 250 مل', 190.00, 190.00, 'COSMO-MI', 'انفينتي فارما'),
 (140928, 'INFINITY CICA REPAIR LOTION SPF50+ SENSITIVE SKIN 200ML', 'إنفينتي سيكا ريبير لوشن مصلح واقي شمس للبشرة الحساسة SPF50+ بحجم 200 مل', 380.00, 380.00, 'COSMO-MI', 'انفينتي فارما'),
@@ -1883,6 +1883,6 @@ INSERT INTO sales.new_arrival (code, name_en, name_ar, price_1, price_2, categor
 (142330, 'INFINITY MYO_INO 60TAB', 'إنفينتي ميو إنوزيتول أقراص 60 قرص', 400.00, 400.00, 'ORAL', 'LOCAL'),
 (122928, 'INFINITY WHITENING SUN LOTION SPF50+ 50ML', 'إنفينتي لوشن واقي شمس ومبيض SPF50+ بحجم 50 مل', 350.00, 350.00, 'COSMO-MI', 'انفينتي فارما'),
 (132313, 'INFINITY MARINE COLLAGEN ANTI-AGING CREAM (DAY+NIGHT) 50ML', 'إنفينتي مارين كولاجين كريم مقاوم لعلامات التقدم بالعمر (نهار وليل) 50 مل', 200.00, 200.00, 'COSMO-MI', 'انفينتي فارما'),
-(146079, 'INFINITY OMEGA RX PLUS 3 DHA FISH OIL 60GUMMIES', 'إنفينتي أوميجا آر إكس بلس زيت سمك دي إتش إيه قطع جيلي 60 قطعة', 290.00, 290.00, 'Other Fooc', 'LOCAL');
+(146079, 'INFINITY OMEGA RX PLUS 3 DHA FISH OIL 60GUMMIES', 'إنفينتي أوميجا آر إكس بلس زيت سمك دي إتش إيه قطع جيلي 60 قطعة', 290.00, 290.00, 'Other Fooc', 'LOCAL'),
 
 
