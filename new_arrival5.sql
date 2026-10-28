@@ -246,7 +246,7 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (137768, 'INFINITY HAND CREAM ARABIAN NIGHTS 50ML', 100.00, 100.00, 'COSMO-MI', 'انفينتي فارما'),
 (137771, 'INFINITY HAND CREAM DARK ALLURE 50ML', 100.00, 100.00, 'COSMO-MI', 'انفينتي فارما'),
 (136616, 'INFINITY HYALU COLLAGEN CLEAN 200ML فرشة', 280.00, 280.00, 'COSMO-MI', 'انفينتي فارما'),
-(136153, 'INFINITY MICRONE WATER HYDAGEN MAKEUP 250MLلنب', 220.00, 220.00, 'COSMO-MI', 'انفينتي فارما'),
+
 (142330, 'INFINITY MYO_INO 60TAB', 400.00, 400.00, 'ORAL', 'LOCAL'),
 (122928, 'INFINITY WHITENING SUN LOTION SPF50+ 50ML', 350.00, 350.00, 'COSMO-MI', 'انفينتي فارما'),
 
@@ -254,6 +254,7 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (146079, 'INFINITY OMEGA RX PLUS 3 DHA FISH OIL 60GUMMIES', 290.00, 290.00, 'Other Fooc', 'LOCAL'),
 
 ------------------------------------------------------------------------------------------------------------
+(136153, 'INFINITY MICELLER WATER HYDAGEN MAKEUP REMOVER 250MLلنب', 220.00, 220.00, 'COSMO-MI', 'انفينتي فارما'),
 (138392, 'INFINITY BODY SPLASH ARABIAN250MLتستر', 20.00, 20.00, 'COSMO-MI', 'انفينتي فارما'),
 (138395, 'INFINITY BODY SPLASH BERRY250MLتستر', 20.00, 20.00, 'COSMO-MI', 'انفينتي فارما'),
 (138393, 'INFINITY BODY SPLASH CHERRY250MLتستر', 20.00, 20.00, 'COSMO-MI', 'انفينتي فارما'),
