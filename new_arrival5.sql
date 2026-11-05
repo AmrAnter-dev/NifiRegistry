@@ -404,9 +404,9 @@ INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier)
 (133944, 'BLESS SHOWER GEL ARABIAN NIGHTS 500 ML', 125.00, 125.00, 'Hair Shamp', 'شركة بليس للتصنيع والتجارة'),
 (133946, 'BLESS SHOWER GEL OCEAN DEW 500 ML', 125.00, 125.00, 'Hair Shamp', 'شركة بليس للتصنيع والتجارة'),
 (25714, 'BLESS #NA #ACTIVATOR COND HAIR CURL200MSULFREE', 125.00, 125.00, 'Hair Condit', 'شركة بليس للتصنيع والتجارة'),
-(120255, 'BLESS #NA #HAIR OIL VITAMIN E SKIN NAILS 50ML', 250.00, 250.00, 'Hair Oil0', 'شركة بليس للتصنيع والتجارة');
+(120255, 'BLESS #NA #HAIR OIL VITAMIN E SKIN NAILS 50ML', 250.00, 250.00, 'Hair Oil0', 'شركة بليس للتصنيع والتجارة'),
 
-INSERT INTO Sales.products (code, name_ar, price_1, price_2, category, supplier) VALUES
+
 (118438, 'DEAR ROLL-ON WHITE SWEET CANDAY 60ML #C#', 190.00, 190.00, 'COSMO-MI', 'LEAP'),
 (118102, 'DEAR ROLL-ON(1+1)LUXURY OUD 60MLعرض #C#', 300.00, 300.00, 'COSMO-MI', 'LEAP'),
 (118103, 'DEAR ROLL-ON(1+1)SWEET CANDAY60ML عرض #C#', 300.00, 300.00, 'COSMO-MI', 'LEAP'),
